@@ -44,3 +44,4 @@ class MutationRepository(BaseRepository[MutationRecord]):
 
 
 mutation_repository = MutationRepository()
+
