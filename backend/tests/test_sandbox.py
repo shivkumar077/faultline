@@ -1,6 +1,7 @@
 """Unit tests for Docker sandbox configuration, runtime abstraction, and workspace management."""
 
-import subprocess
+import io
+import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -28,6 +29,41 @@ def test_sandbox_config_defaults():
     assert "--pids-limit" in flags
     assert "128" in flags
     assert any("--tmpfs" in f for f in flags)
+    assert SandboxConfig().docker_image == "faultline-runner:py312"
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        {"network_disabled": False},
+        {"read_only_rootfs": False},
+        {"drop_all_capabilities": False},
+        {"no_new_privileges": False},
+        {"container_user": "0:0"},
+        {"timeout_seconds": 0},
+    ],
+)
+def test_sandbox_config_rejects_weakened_security_or_limits(values):
+    with pytest.raises(ValueError):
+        SandboxConfig(**values)
+
+
+def test_controlled_runner_image_uses_pinned_pytest_and_non_root_user():
+    dockerfile = Path(__file__).parents[2] / "docker" / "runner.Dockerfile"
+    content = dockerfile.read_text(encoding="utf-8")
+    assert "FROM python:3.12-slim" in content
+    assert "pytest==8.3.5" in content
+    assert "USER 1000:1000" in content
+    assert "PYTHONDONTWRITEBYTECODE=1" in content
+    assert "pip install" not in content.split("CMD", maxsplit=1)[-1]
+
+
+def test_backend_and_untrusted_runner_images_are_separate():
+    root = Path(__file__).parents[2]
+    backend_dockerfile = (root / "Dockerfile").read_text(encoding="utf-8")
+    assert "FROM docker:27.5.1-cli AS docker-cli" in backend_dockerfile
+    assert "COPY --from=docker-cli /usr/local/bin/docker" in backend_dockerfile
+    assert "docker.sock" not in backend_dockerfile
 
 
 def test_docker_runtime_check_availability_success():
@@ -63,60 +99,142 @@ def test_docker_runtime_require_availability_raises():
 
 def test_docker_runtime_build_docker_command(tmp_path: Path):
     runtime = DockerRuntime()
+    command = [
+        "python",
+        "-m",
+        "pytest",
+        "-q",
+        "--tb=short",
+        "-p",
+        "no:cacheprovider",
+    ]
     cmd = runtime._build_docker_command(
         workspace_path=tmp_path,
-        command=["python", "-m", "pytest"],
-        environment={"PYTHONPATH": "."},
+        command=command,
+        container_name="faultline-test",
     )
-    assert cmd[0:3] == ["docker", "run", "--rm"]
+    assert cmd[0:4] == ["docker", "run", "--name", "faultline-test"]
     assert "--network=none" in cmd
+    assert "--read-only" in cmd
+    assert "--cap-drop=ALL" in cmd
+    assert "--security-opt=no-new-privileges" in cmd
     assert "-v" in cmd
     assert f"{tmp_path.resolve()}:/workspace:ro" in cmd
     assert "-w" in cmd
     assert "/workspace" in cmd
-    assert "-e" in cmd
-    assert "PYTHONPATH=." in cmd
-    assert cmd[-3:] == ["python", "-m", "pytest"]
+    assert "faultline-runner:py312" in cmd
+    assert cmd[-7:] == command
+    assert "--privileged" not in cmd
+    assert not any("docker.sock" in item for item in cmd)
+    assert "--rm" not in cmd
+
+
+class FakeProcess:
+    def __init__(self, stdout=b"", stderr=b"", *, keep_running=False):
+        self.stdout = io.BytesIO(stdout)
+        self.stderr = io.BytesIO(stderr)
+        self.returncode = 0
+        self.keep_running = keep_running
+        self.terminated = False
+
+    def poll(self):
+        if self.keep_running and not self.terminated:
+            return None
+        time.sleep(0.05)
+        return self.returncode
+
+    def wait(self, timeout=None):
+        return self.returncode
+
+    def terminate(self):
+        self.terminated = True
+        self.returncode = -15
+
+    def kill(self):
+        self.returncode = -9
 
 
 def test_docker_runtime_run_in_container_success(tmp_path: Path):
     runtime = DockerRuntime()
-    with patch("subprocess.run") as mock_run:
-        mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout="3 passed in 0.12s\n",
-            stderr="",
-        )
-        result = runtime.run_in_container(tmp_path, ["python", "-m", "pytest"])
+    process = FakeProcess(b"3 passed in 0.12s\n", b"runner warning\n")
+    command = ["python", "-m", "pytest", "-q", "--tb=short", "-p", "no:cacheprovider"]
+    with (
+        patch("subprocess.Popen", return_value=process),
+        patch.object(runtime, "_remove_container") as cleanup,
+    ):
+        result = runtime.run_in_container(tmp_path, command)
         assert result.exit_code == 0
         assert "3 passed" in result.stdout
-        assert result.stderr == ""
+        assert result.stderr == "runner warning\n"
         assert not result.timed_out
         assert result.duration_ms >= 0
+        cleanup.assert_called_once()
 
 
 def test_docker_runtime_run_in_container_timeout(tmp_path: Path):
     runtime = DockerRuntime()
-    with patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="docker", timeout=5)):
-        result = runtime.run_in_container(tmp_path, ["python", "-m", "pytest"], timeout_seconds=5)
-        assert result.exit_code == -1
+    process = FakeProcess(keep_running=True)
+    command = ["python", "-m", "pytest", "-q", "--tb=short", "-p", "no:cacheprovider"]
+    with (
+        patch("subprocess.Popen", return_value=process),
+        patch.object(runtime, "_remove_container") as cleanup,
+    ):
+        result = runtime.run_in_container(tmp_path, command, timeout_seconds=1)
+        assert result.exit_code == -15
         assert result.timed_out is True
-        assert "timed out after 5 seconds" in result.stderr
+        assert "timed out after 1 seconds" in result.stderr
+        assert process.terminated
+        cleanup.assert_called_once()
 
 
 def test_docker_runtime_run_in_container_invalid_dir():
     runtime = DockerRuntime()
     invalid_path = Path("/nonexistent/directory/path/12345")
     with pytest.raises(ValidationException):
-        runtime.run_in_container(invalid_path, ["python", "-m", "pytest"])
+        runtime.run_in_container(
+            invalid_path, ["python", "-m", "pytest", "-q", "--tb=short", "-p", "no:cacheprovider"]
+        )
 
 
-def test_docker_runtime_output_truncation():
+@pytest.mark.parametrize("stream", ["stdout", "stderr"])
+def test_docker_runtime_stops_when_stream_output_exceeds_limit(tmp_path: Path, stream: str):
+    runtime = DockerRuntime(SandboxConfig(max_stdout_bytes=32, max_stderr_bytes=32))
+    process = FakeProcess(
+        stdout=b"A" * 4096 if stream == "stdout" else b"",
+        stderr=b"A" * 4096 if stream == "stderr" else b"",
+        keep_running=True,
+    )
+    command = ["python", "-m", "pytest", "-q", "--tb=short", "-p", "no:cacheprovider"]
+    with (
+        patch("subprocess.Popen", return_value=process),
+        patch.object(runtime, "_remove_container") as cleanup,
+    ):
+        result = runtime.run_in_container(tmp_path, command)
+
+    assert result.output_limited
+    captured = result.stdout if stream == "stdout" else result.stderr
+    assert len(captured.split("\n...")[0].encode("utf-8")) <= 32
+    assert process.terminated
+    cleanup.assert_called_once()
+
+
+def test_docker_runtime_rejects_repository_supplied_command(tmp_path: Path):
     runtime = DockerRuntime()
-    large_output = "A" * 200
-    truncated = runtime._truncate_output(large_output, max_bytes=50)
-    assert len(truncated.encode("utf-8")) > 50  # includes suffix
-    assert "[output truncated]" in truncated
+    with (
+        patch("subprocess.Popen") as popen,
+        pytest.raises(ValidationException, match="approved"),
+    ):
+        runtime.run_in_container(tmp_path, ["sh", "-c", "echo unsafe"])
+    popen.assert_not_called()
+
+
+def test_docker_runtime_cleanup_accepts_already_removed_container():
+    with patch(
+        "subprocess.run",
+        return_value=MagicMock(returncode=1, stderr="Error: No such container"),
+    ) as run:
+        DockerRuntime._remove_container("faultline-test")
+    assert run.call_args.args[0][:3] == ["docker", "rm", "--force"]
 
 
 def test_workspace_manager_lifecycle(tmp_path: Path):
@@ -140,3 +258,13 @@ def test_workspace_manager_lifecycle(tmp_path: Path):
     # Cleaned up after context manager
     assert not ws.exists()
 
+
+def test_workspace_manager_cleans_up_after_execution_failure(tmp_path: Path):
+    manager = WorkspaceManager()
+    workspace = None
+    with pytest.raises(RuntimeError, match="execution failed"):
+        with manager.isolated_workspace() as workspace:
+            (workspace / "partial.py").write_text("x = 1", encoding="utf-8")
+            raise RuntimeError("execution failed")
+    assert workspace is not None
+    assert not workspace.exists()
