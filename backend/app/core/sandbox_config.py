@@ -8,7 +8,7 @@ class SandboxConfig:
     """Immutable configuration for Docker-based execution sandboxes."""
 
     # Docker image for test execution
-    docker_image: str = "python:3.12-slim"
+    docker_image: str = "faultline-runner:py312"
 
     # Resource limits
     cpu_limit: float = 1.0  # CPU cores
@@ -30,6 +30,27 @@ class SandboxConfig:
     # Workspace
     workspace_mount_target: str = "/workspace"
     tmpfs_mounts: dict[str, str] = field(default_factory=lambda: {"/tmp": "size=64m,noexec"})
+
+    def __post_init__(self) -> None:
+        mandatory = {
+            "network_disabled": self.network_disabled,
+            "read_only_rootfs": self.read_only_rootfs,
+            "drop_all_capabilities": self.drop_all_capabilities,
+            "no_new_privileges": self.no_new_privileges,
+        }
+        if not all(mandatory.values()):
+            raise ValueError("Sandbox security controls cannot be disabled.")
+        user_id = self.container_user.split(":", maxsplit=1)[0]
+        if user_id == "0" or user_id.lower() == "root":
+            raise ValueError("Sandbox containers must run as a non-root user.")
+        if (
+            self.cpu_limit <= 0
+            or self.max_pids <= 0
+            or self.timeout_seconds <= 0
+            or self.max_stdout_bytes <= 0
+            or self.max_stderr_bytes <= 0
+        ):
+            raise ValueError("Sandbox resource limits must be positive.")
 
     def to_docker_flags(self) -> list[str]:
         """Build the security and resource Docker CLI flags."""
