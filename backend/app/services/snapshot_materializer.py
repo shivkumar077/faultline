@@ -159,7 +159,17 @@ class SnapshotMaterializer:
             self.materialize_commit(repository_url, commit_hash, temp_dir)
             yield Path(temp_dir)
         finally:
-            shutil.rmtree(temp_dir, ignore_errors=True)
+            try:
+                shutil.rmtree(temp_dir)
+            except FileNotFoundError:
+                pass
+            except OSError as exc:
+                logger.error("Snapshot workspace cleanup failed (%s)", type(exc).__name__)
+                raise FaultlineException(
+                    status_code=500,
+                    detail="Snapshot workspace cleanup failed.",
+                    error_code="WORKSPACE_CLEANUP_FAILED",
+                ) from exc
 
 
 snapshot_materializer = SnapshotMaterializer()

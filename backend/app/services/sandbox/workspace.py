@@ -48,9 +48,14 @@ class WorkspaceManager:
         """Safely remove a workspace directory."""
         if workspace_path.exists():
             try:
-                shutil.rmtree(workspace_path, ignore_errors=True)
+                shutil.rmtree(workspace_path)
             except Exception as exc:
-                logger.warning("Failed to clean up workspace %s: %s", workspace_path, exc)
+                logger.error("Workspace cleanup failed (%s)", type(exc).__name__)
+                raise FaultlineException(
+                    status_code=500,
+                    detail="Isolated workspace cleanup failed.",
+                    error_code="WORKSPACE_CLEANUP_FAILED",
+                ) from exc
 
     @contextmanager
     def isolated_workspace(self, source_dir: Path | None = None) -> Generator[Path, None, None]:
