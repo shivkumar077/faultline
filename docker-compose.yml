@@ -32,6 +32,7 @@ services:
       ENVIRONMENT: development
       DEBUG: "true"
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-faultline}:${POSTGRES_PASSWORD:-faultline_dev_secret}@postgres:5432/${POSTGRES_DB:-faultline}
+      DOCKER_HOST: ${DOCKER_HOST:-}
       HOST: 0.0.0.0
       PORT: 8000
     ports:
