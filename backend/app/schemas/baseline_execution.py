@@ -1,7 +1,20 @@
+"""Pydantic schemas for baseline test execution."""
+
 import uuid
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
+
+
+class ExecuteBaselineRequest(BaseModel):
+    """Optional configuration for triggering baseline test runs."""
+
+    custom_command: list[str] | None = Field(
+        None, description="Custom command overrides for the test runner"
+    )
+    timeout_seconds: int | None = Field(
+        None, ge=5, le=300, description="Execution timeout override in seconds"
+    )
 
 
 class BaselineExecutionBase(BaseModel):
