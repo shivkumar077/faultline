@@ -42,6 +42,14 @@ class MutationRepository(BaseRepository[MutationRecord]):
         records = db.scalars(stmt).all()
         return records, total
 
+    def get_all_by_analysis(self, db: Session, analysis_id: uuid.UUID) -> Sequence[MutationRecord]:
+        statement = (
+            select(MutationRecord)
+            .where(MutationRecord.analysis_run_id == analysis_id)
+            .order_by(MutationRecord.target_file, MutationRecord.line_number, MutationRecord.id)
+            .limit(500)
+        )
+        return db.scalars(statement).all()
+
 
 mutation_repository = MutationRepository()
-
