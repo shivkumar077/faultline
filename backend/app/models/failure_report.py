@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
+
 from sqlalchemy import DateTime, ForeignKey, String, Text, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -25,24 +26,18 @@ class FailureReport(Base):
         nullable=False,
         index=True,
     )
-    execution_result_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    execution_result_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True),
         ForeignKey("execution_results.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
     title: Mapped[str] = mapped_column(String(255), nullable=False)
-    failure_type: Mapped[str] = mapped_column(
-        String(100), nullable=False, index=True
-    )
-    root_cause_analysis: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    suggested_repair: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    severity: Mapped[str] = mapped_column(
-        String(50), default="medium", nullable=False, index=True
-    )
-    status: Mapped[str] = mapped_column(
-        String(50), default="open", nullable=False, index=True
-    )
+    failure_type: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    root_cause_analysis: Mapped[str | None] = mapped_column(Text, nullable=True)
+    suggested_repair: Mapped[str | None] = mapped_column(Text, nullable=True)
+    severity: Mapped[str] = mapped_column(String(50), default="medium", nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(50), default="open", nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

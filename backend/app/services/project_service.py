@@ -1,10 +1,9 @@
 import math
 import uuid
-from typing import Optional
+
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import DuplicateResourceException, NotFoundException
-from app.models.project import Project
 from app.repositories.project_repository import project_repository
 from app.schemas.common import PaginatedResponse
 from app.schemas.project import (
@@ -24,9 +23,7 @@ class ProjectService:
         slug = project_in.slug or slugify(project_in.name)
         existing = self.repo.get_by_slug(db, slug)
         if existing:
-            raise DuplicateResourceException(
-                resource="Project", field="slug", value=slug
-            )
+            raise DuplicateResourceException(resource="Project", field="slug", value=slug)
 
         data = project_in.model_dump()
         data["slug"] = slug

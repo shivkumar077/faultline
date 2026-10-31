@@ -1,4 +1,5 @@
-from typing import Any, Dict, Optional
+from typing import Any
+
 from fastapi import HTTPException, status
 
 
@@ -8,8 +9,8 @@ class FaultlineException(HTTPException):
         status_code: int,
         detail: str,
         error_code: str = "FAULTLINE_ERROR",
-        headers: Optional[Dict[str, str]] = None,
-        extra: Optional[Dict[str, Any]] = None,
+        headers: dict[str, str] | None = None,
+        extra: dict[str, Any] | None = None,
     ):
         super().__init__(status_code=status_code, detail=detail, headers=headers)
         self.error_code = error_code
@@ -35,7 +36,7 @@ class DuplicateResourceException(FaultlineException):
 
 
 class ValidationException(FaultlineException):
-    def __init__(self, detail: str, extra: Optional[Dict[str, Any]] = None):
+    def __init__(self, detail: str, extra: dict[str, Any] | None = None):
         super().__init__(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=detail,

@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any
+
 from sqlalchemy import JSON, DateTime, ForeignKey, String, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -34,17 +35,11 @@ class AnalysisRun(Base):
         nullable=False,
         index=True,
     )
-    name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    status: Mapped[str] = mapped_column(
-        String(50), default="pending", nullable=False, index=True
-    )
-    summary: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
-    started_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    completed_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    status: Mapped[str] = mapped_column(String(50), default="pending", nullable=False, index=True)
+    summary: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -60,17 +55,17 @@ class AnalysisRun(Base):
     code_snapshot: Mapped["CodeSnapshot"] = relationship(
         "CodeSnapshot", back_populates="analysis_runs"
     )
-    baseline_executions: Mapped[List["BaselineExecution"]] = relationship(
+    baseline_executions: Mapped[list["BaselineExecution"]] = relationship(
         "BaselineExecution",
         back_populates="analysis_run",
         cascade="all, delete-orphan",
     )
-    mutation_records: Mapped[List["MutationRecord"]] = relationship(
+    mutation_records: Mapped[list["MutationRecord"]] = relationship(
         "MutationRecord",
         back_populates="analysis_run",
         cascade="all, delete-orphan",
     )
-    failure_reports: Mapped[List["FailureReport"]] = relationship(
+    failure_reports: Mapped[list["FailureReport"]] = relationship(
         "FailureReport",
         back_populates="analysis_run",
         cascade="all, delete-orphan",

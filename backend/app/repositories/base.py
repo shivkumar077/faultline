@@ -1,5 +1,6 @@
 import uuid
-from typing import Any, Dict, Generic, List, Optional, Tuple, Type, TypeVar, Union
+from typing import Any, TypeVar
+
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -8,11 +9,11 @@ from app.db.base import Base
 ModelType = TypeVar("ModelType", bound=Base)
 
 
-class BaseRepository(Generic[ModelType]):
-    def __init__(self, model: Type[ModelType]):
+class BaseRepository[ModelType: Base]:
+    def __init__(self, model: type[ModelType]):
         self.model = model
 
-    def get(self, db: Session, id: Union[uuid.UUID, str]) -> Optional[ModelType]:
+    def get(self, db: Session, id: uuid.UUID | str) -> ModelType | None:
         if isinstance(id, str):
             try:
                 id = uuid.UUID(id)
@@ -22,7 +23,7 @@ class BaseRepository(Generic[ModelType]):
 
     def get_multi(
         self, db: Session, *, skip: int = 0, limit: int = 20
-    ) -> Tuple[List[ModelType], int]:
+    ) -> tuple[list[ModelType], int]:
         total_stmt = select(func.count()).select_from(self.model)
         total = db.scalar(total_stmt) or 0
 
@@ -30,7 +31,7 @@ class BaseRepository(Generic[ModelType]):
         items = list(db.scalars(stmt).all())
         return items, total
 
-    def create(self, db: Session, *, obj_in: Union[Dict[str, Any], Any]) -> ModelType:
+    def create(self, db: Session, *, obj_in: dict[str, Any] | Any) -> ModelType:
         if isinstance(obj_in, dict):
             obj_data = obj_in
         else:
@@ -46,7 +47,7 @@ class BaseRepository(Generic[ModelType]):
         db: Session,
         *,
         db_obj: ModelType,
-        obj_in: Union[Dict[str, Any], Any],
+        obj_in: dict[str, Any] | Any,
     ) -> ModelType:
         if isinstance(obj_in, dict):
             update_data = obj_in
@@ -62,7 +63,7 @@ class BaseRepository(Generic[ModelType]):
         db.refresh(db_obj)
         return db_obj
 
-    def delete(self, db: Session, *, id: Union[uuid.UUID, str]) -> Optional[ModelType]:
+    def delete(self, db: Session, *, id: uuid.UUID | str) -> ModelType | None:
         db_obj = self.get(db, id)
         if db_obj:
             db.delete(db_obj)

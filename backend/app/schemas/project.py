@@ -1,7 +1,7 @@
 import re
 import uuid
 from datetime import datetime
-from typing import Optional
+
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
@@ -15,18 +15,18 @@ def slugify(text: str) -> str:
 
 class ProjectBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=255, description="Project name")
-    description: Optional[str] = Field(None, description="Detailed project description")
+    description: str | None = Field(None, description="Detailed project description")
     status: str = Field(default="active", max_length=50, description="Project status")
 
 
 class ProjectCreate(ProjectBase):
-    slug: Optional[str] = Field(
+    slug: str | None = Field(
         None, max_length=255, description="Unique slug for the project. Auto-generated if omitted."
     )
 
     @field_validator("slug", mode="before")
     @classmethod
-    def validate_or_generate_slug(cls, v: Optional[str], info) -> Optional[str]:
+    def validate_or_generate_slug(cls, v: str | None, info) -> str | None:
         if v and v.strip():
             return slugify(v)
         # If slug is not provided, slugify name if present in data
@@ -37,14 +37,14 @@ class ProjectCreate(ProjectBase):
 
 
 class ProjectUpdate(BaseModel):
-    name: Optional[str] = Field(None, min_length=1, max_length=255)
-    slug: Optional[str] = Field(None, min_length=1, max_length=255)
-    description: Optional[str] = None
-    status: Optional[str] = Field(None, max_length=50)
+    name: str | None = Field(None, min_length=1, max_length=255)
+    slug: str | None = Field(None, min_length=1, max_length=255)
+    description: str | None = None
+    status: str | None = Field(None, max_length=50)
 
     @field_validator("slug")
     @classmethod
-    def validate_slug(cls, v: Optional[str]) -> Optional[str]:
+    def validate_slug(cls, v: str | None) -> str | None:
         if v is not None:
             return slugify(v)
         return v

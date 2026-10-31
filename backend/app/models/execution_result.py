@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any
+
 from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -25,14 +26,12 @@ class ExecutionResult(Base):
         nullable=False,
         index=True,
     )
-    status: Mapped[str] = mapped_column(
-        String(50), default="pending", nullable=False, index=True
-    )
-    exit_code: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    stdout: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    stderr: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    duration_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    test_output: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
+    status: Mapped[str] = mapped_column(String(50), default="pending", nullable=False, index=True)
+    exit_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    stdout: Mapped[str | None] = mapped_column(Text, nullable=True)
+    stderr: Mapped[str | None] = mapped_column(Text, nullable=True)
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    test_output: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -41,9 +40,11 @@ class ExecutionResult(Base):
     mutation_record: Mapped["MutationRecord"] = relationship(
         "MutationRecord", back_populates="execution_results"
     )
-    failure_reports: Mapped[List["FailureReport"]] = relationship(
+    failure_reports: Mapped[list["FailureReport"]] = relationship(
         "FailureReport", back_populates="execution_result"
     )
 
     def __repr__(self) -> str:
-        return f"<ExecutionResult(id={self.id}, status='{self.status}', exit_code={self.exit_code})>"
+        return (
+            f"<ExecutionResult(id={self.id}, status='{self.status}', exit_code={self.exit_code})>"
+        )

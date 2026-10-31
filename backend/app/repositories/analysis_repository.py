@@ -1,5 +1,5 @@
 import uuid
-from typing import List, Optional, Tuple
+
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -18,11 +18,11 @@ class AnalysisRepository(BaseRepository[AnalysisRun]):
         self,
         db: Session,
         *,
-        project_id: Optional[uuid.UUID] = None,
-        status: Optional[str] = None,
+        project_id: uuid.UUID | None = None,
+        status: str | None = None,
         skip: int = 0,
         limit: int = 20,
-    ) -> Tuple[List[AnalysisRun], int]:
+    ) -> tuple[list[AnalysisRun], int]:
         total_stmt = select(func.count()).select_from(AnalysisRun)
         stmt = select(AnalysisRun)
 
@@ -36,15 +36,13 @@ class AnalysisRepository(BaseRepository[AnalysisRun]):
 
         total = db.scalar(total_stmt) or 0
         items = list(
-            db.scalars(
-                stmt.order_by(AnalysisRun.created_at.desc()).offset(skip).limit(limit)
-            ).all()
+            db.scalars(stmt.order_by(AnalysisRun.created_at.desc()).offset(skip).limit(limit)).all()
         )
         return items, total
 
     def get_with_counts(
         self, db: Session, id: uuid.UUID
-    ) -> Optional[Tuple[AnalysisRun, int, int, int]]:
+    ) -> tuple[AnalysisRun, int, int, int] | None:
         analysis = self.get(db, id)
         if not analysis:
             return None

@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING
+
 from sqlalchemy import DateTime, String, Text, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -22,10 +23,8 @@ class Project(Base):
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     slug: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
-    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    status: Mapped[str] = mapped_column(
-        String(50), default="active", nullable=False, index=True
-    )
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(50), default="active", nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -37,17 +36,17 @@ class Project(Base):
     )
 
     # Relationships
-    repository_connections: Mapped[List["RepositoryConnection"]] = relationship(
+    repository_connections: Mapped[list["RepositoryConnection"]] = relationship(
         "RepositoryConnection",
         back_populates="project",
         cascade="all, delete-orphan",
     )
-    code_snapshots: Mapped[List["CodeSnapshot"]] = relationship(
+    code_snapshots: Mapped[list["CodeSnapshot"]] = relationship(
         "CodeSnapshot",
         back_populates="project",
         cascade="all, delete-orphan",
     )
-    analysis_runs: Mapped[List["AnalysisRun"]] = relationship(
+    analysis_runs: Mapped[list["AnalysisRun"]] = relationship(
         "AnalysisRun",
         back_populates="project",
         cascade="all, delete-orphan",

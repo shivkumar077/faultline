@@ -1,16 +1,17 @@
 import uuid
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
 class ExecutionResultBase(BaseModel):
     status: str = Field(default="pending", max_length=50)
-    exit_code: Optional[int] = None
-    stdout: Optional[str] = None
-    stderr: Optional[str] = None
-    duration_ms: Optional[int] = None
-    test_output: Optional[Dict[str, Any]] = None
+    exit_code: int | None = None
+    stdout: str | None = None
+    stderr: str | None = None
+    duration_ms: int | None = None
+    test_output: dict[str, Any] | None = None
 
 
 class ExecutionResultCreate(ExecutionResultBase):

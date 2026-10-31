@@ -1,5 +1,4 @@
-from typing import List, Union
-from pydantic import AnyHttpUrl, field_validator
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -20,7 +19,7 @@ class Settings(BaseSettings):
     PORT: int = 8000
 
     # CORS
-    CORS_ORIGINS: List[str] = [
+    CORS_ORIGINS: list[str] = [
         "http://localhost:3000",
         "http://localhost:5173",
         "http://localhost:8000",
@@ -28,7 +27,7 @@ class Settings(BaseSettings):
 
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
-    def assemble_cors_origins(cls, v: Union[str, List[str]]) -> List[str]:
+    def assemble_cors_origins(cls, v: str | list[str]) -> list[str]:
         if isinstance(v, str) and not v.startswith("["):
             return [i.strip() for i in v.split(",")]
         elif isinstance(v, list):
@@ -41,6 +40,13 @@ class Settings(BaseSettings):
     DB_MAX_OVERFLOW: int = 20
     DB_POOL_TIMEOUT: int = 30
     DB_ECHO: bool = False
+
+    @field_validator("DATABASE_URL", mode="after")
+    @classmethod
+    def assemble_database_url(cls, v: str) -> str:
+        if v.startswith("postgresql://"):
+            return v.replace("postgresql://", "postgresql+psycopg2://", 1)
+        return v
 
 
 settings = Settings()

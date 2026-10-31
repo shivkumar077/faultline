@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from typing import Optional
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -21,6 +21,6 @@ class RepositoryConnectionResponse(RepositoryConnectionBase):
 
     id: uuid.UUID
     project_id: uuid.UUID
-    last_synced_at: Optional[datetime] = None
+    last_synced_at: datetime | None = None
     created_at: datetime
     updated_at: datetime

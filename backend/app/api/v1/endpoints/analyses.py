@@ -1,5 +1,5 @@
 import uuid
-from typing import Optional
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
@@ -13,12 +13,8 @@ router = APIRouter(prefix="/analyses", tags=["Analyses"])
 
 @router.get("", response_model=PaginatedResponse[AnalysisRunResponse])
 def list_analyses(
-    project_id: Optional[uuid.UUID] = Query(
-        default=None, description="Filter analyses by project ID"
-    ),
-    status: Optional[str] = Query(
-        default=None, description="Filter analyses by status"
-    ),
+    project_id: uuid.UUID | None = Query(default=None, description="Filter analyses by project ID"),
+    status: str | None = Query(default=None, description="Filter analyses by status"),
     page: int = Query(default=1, ge=1, description="Page number"),
     page_size: int = Query(default=20, ge=1, le=100, description="Items per page"),
     db: Session = Depends(get_db),

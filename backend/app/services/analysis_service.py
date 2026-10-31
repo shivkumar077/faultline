@@ -1,6 +1,6 @@
 import math
 import uuid
-from typing import Optional
+
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import NotFoundException
@@ -17,8 +17,8 @@ class AnalysisService:
         self,
         db: Session,
         *,
-        project_id: Optional[uuid.UUID] = None,
-        status: Optional[str] = None,
+        project_id: uuid.UUID | None = None,
+        status: str | None = None,
         page: int = 1,
         page_size: int = 20,
     ) -> PaginatedResponse[AnalysisRunResponse]:
@@ -36,9 +36,7 @@ class AnalysisService:
             total_pages=total_pages,
         )
 
-    def get_analysis(
-        self, db: Session, analysis_id: uuid.UUID
-    ) -> AnalysisRunDetailResponse:
+    def get_analysis(self, db: Session, analysis_id: uuid.UUID) -> AnalysisRunDetailResponse:
         result = self.repo.get_with_counts(db, analysis_id)
         if not result:
             raise NotFoundException(resource="AnalysisRun", identifier=analysis_id)

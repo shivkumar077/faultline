@@ -31,13 +31,14 @@ services:
     environment:
       ENVIRONMENT: development
       DEBUG: "true"
-      DATABASE_URL: postgresql://${POSTGRES_USER:-faultline}:${POSTGRES_PASSWORD:-faultline_dev_secret}@postgres:5432/${POSTGRES_DB:-faultline}
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-faultline}:${POSTGRES_PASSWORD:-faultline_dev_secret}@postgres:5432/${POSTGRES_DB:-faultline}
       HOST: 0.0.0.0
       PORT: 8000
     ports:
       - "8000:8000"
     volumes:
       - ./backend:/app/backend
+      - ./alembic.ini:/app/alembic.ini
     networks:
       - faultline-network
 

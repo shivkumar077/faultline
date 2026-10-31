@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
+
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -32,13 +33,11 @@ class BaselineExecution(Base):
         index=True,
     )
     command: Mapped[str] = mapped_column(String(512), nullable=False)
-    status: Mapped[str] = mapped_column(
-        String(50), default="pending", nullable=False, index=True
-    )
-    exit_code: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    stdout: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    stderr: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    duration_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    status: Mapped[str] = mapped_column(String(50), default="pending", nullable=False, index=True)
+    exit_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    stdout: Mapped[str | None] = mapped_column(Text, nullable=True)
+    stderr: Mapped[str | None] = mapped_column(Text, nullable=True)
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -52,4 +51,6 @@ class BaselineExecution(Base):
     )
 
     def __repr__(self) -> str:
-        return f"<BaselineExecution(id={self.id}, status='{self.status}', command='{self.command}')>"
+        return (
+            f"<BaselineExecution(id={self.id}, status='{self.status}', command='{self.command}')>"
+        )

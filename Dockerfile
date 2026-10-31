@@ -23,6 +23,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
 
 # Copy application and migration files
 COPY backend ./backend
+COPY alembic.ini .
 
 EXPOSE 8000
 

@@ -1,16 +1,16 @@
 import uuid
 from datetime import datetime
-from typing import Optional
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
 class BaselineExecutionBase(BaseModel):
     command: str = Field(..., max_length=512)
     status: str = Field(default="pending", max_length=50)
-    exit_code: Optional[int] = None
-    stdout: Optional[str] = None
-    stderr: Optional[str] = None
-    duration_ms: Optional[int] = None
+    exit_code: int | None = None
+    stdout: str | None = None
+    stderr: str | None = None
+    duration_ms: int | None = None
 
 
 class BaselineExecutionCreate(BaselineExecutionBase):

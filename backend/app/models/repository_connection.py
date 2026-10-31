@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING
+
 from sqlalchemy import DateTime, ForeignKey, String, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -25,18 +26,12 @@ class RepositoryConnection(Base):
         nullable=False,
         index=True,
     )
-    provider: Mapped[str] = mapped_column(
-        String(50), nullable=False, default="github"
-    )
+    provider: Mapped[str] = mapped_column(String(50), nullable=False, default="github")
     repository_url: Mapped[str] = mapped_column(String(512), nullable=False)
     branch: Mapped[str] = mapped_column(String(255), default="main", nullable=False)
     auth_type: Mapped[str] = mapped_column(String(50), default="none", nullable=False)
-    status: Mapped[str] = mapped_column(
-        String(50), default="connected", nullable=False, index=True
-    )
-    last_synced_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    status: Mapped[str] = mapped_column(String(50), default="connected", nullable=False, index=True)
+    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -48,12 +43,13 @@ class RepositoryConnection(Base):
     )
 
     # Relationships
-    project: Mapped["Project"] = relationship(
-        "Project", back_populates="repository_connections"
-    )
-    code_snapshots: Mapped[List["CodeSnapshot"]] = relationship(
+    project: Mapped["Project"] = relationship("Project", back_populates="repository_connections")
+    code_snapshots: Mapped[list["CodeSnapshot"]] = relationship(
         "CodeSnapshot", back_populates="repository_connection"
     )
 
     def __repr__(self) -> str:
-        return f"<RepositoryConnection(id={self.id}, provider='{self.provider}', url='{self.repository_url}')>"
+        return (
+            f"<RepositoryConnection(id={self.id}, provider='{self.provider}', "
+            f"url='{self.repository_url}')>"
+        )

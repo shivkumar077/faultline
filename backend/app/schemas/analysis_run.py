@@ -1,13 +1,14 @@
 import uuid
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
 class AnalysisRunBase(BaseModel):
-    name: Optional[str] = Field(None, max_length=255)
+    name: str | None = Field(None, max_length=255)
     status: str = Field(default="pending", max_length=50)
-    summary: Optional[Dict[str, Any]] = None
+    summary: dict[str, Any] | None = None
 
 
 class AnalysisRunCreate(AnalysisRunBase):
@@ -21,8 +22,8 @@ class AnalysisRunResponse(AnalysisRunBase):
     id: uuid.UUID
     project_id: uuid.UUID
     code_snapshot_id: uuid.UUID
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
 
