@@ -41,5 +41,13 @@ class FailureReportRepository(BaseRepository[FailureReport]):
             report.diagnosis_key: report for report in db.scalars(statement) if report.diagnosis_key
         }
 
+    def get_all_for_analysis(self, db: Session, analysis_id: uuid.UUID) -> Sequence[FailureReport]:
+        statement = (
+            select(FailureReport)
+            .where(FailureReport.analysis_run_id == analysis_id)
+            .order_by(FailureReport.created_at, FailureReport.id)
+        )
+        return db.scalars(statement).all()
+
 
 failure_report_repository = FailureReportRepository()

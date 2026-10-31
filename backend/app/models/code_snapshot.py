@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from app.models.analysis_run import AnalysisRun
     from app.models.baseline_execution import BaselineExecution
     from app.models.project import Project
+    from app.models.repair_candidate import RepairCandidate
     from app.models.repository_connection import RepositoryConnection
 
 
@@ -52,6 +53,9 @@ class CodeSnapshot(Base):
     )
     baseline_executions: Mapped[list["BaselineExecution"]] = relationship(
         "BaselineExecution", back_populates="code_snapshot"
+    )
+    repair_candidates: Mapped[list["RepairCandidate"]] = relationship(
+        "RepairCandidate", back_populates="code_snapshot", cascade="all, delete-orphan"
     )
 
     def __repr__(self) -> str:

@@ -5,6 +5,7 @@ from app.models.execution_result import ExecutionResult
 from app.models.failure_report import FailureReport
 from app.models.mutation_record import MutationRecord
 from app.models.project import Project
+from app.models.repair_candidate import RepairCandidate
 from app.models.repository_connection import RepositoryConnection
 
 __all__ = [
@@ -16,4 +17,5 @@ __all__ = [
     "MutationRecord",
     "ExecutionResult",
     "FailureReport",
+    "RepairCandidate",
 ]

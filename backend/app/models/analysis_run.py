@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from app.models.failure_report import FailureReport
     from app.models.mutation_record import MutationRecord
     from app.models.project import Project
+    from app.models.repair_candidate import RepairCandidate
 
 
 class AnalysisRun(Base):
@@ -69,6 +70,9 @@ class AnalysisRun(Base):
         "FailureReport",
         back_populates="analysis_run",
         cascade="all, delete-orphan",
+    )
+    repair_candidates: Mapped[list["RepairCandidate"]] = relationship(
+        "RepairCandidate", back_populates="analysis_run", cascade="all, delete-orphan"
     )
 
     def __repr__(self) -> str:
