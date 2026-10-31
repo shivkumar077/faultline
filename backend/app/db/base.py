@@ -16,6 +16,7 @@ from app.models.failure_report import FailureReport  # noqa: E402
 from app.models.mutation_record import MutationRecord  # noqa: E402
 from app.models.project import Project  # noqa: E402
 from app.models.repair_candidate import RepairCandidate  # noqa: E402
+from app.models.repair_evaluation import RepairEvaluation  # noqa: E402
 from app.models.repository_connection import RepositoryConnection  # noqa: E402
 
 __all__ = [
@@ -29,4 +30,5 @@ __all__ = [
     "ExecutionResult",
     "FailureReport",
     "RepairCandidate",
+    "RepairEvaluation",
 ]

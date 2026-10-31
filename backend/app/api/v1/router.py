@@ -6,6 +6,7 @@ from app.api.v1.endpoints import (
     executions,
     health,
     projects,
+    repair_evaluations,
     repairs,
     repositories,
     snapshots,
@@ -21,3 +22,4 @@ api_v1_router.include_router(analyses.router)
 api_v1_router.include_router(executions.router)
 api_v1_router.include_router(diagnoses.router)
 api_v1_router.include_router(repairs.router)
+api_v1_router.include_router(repair_evaluations.router)

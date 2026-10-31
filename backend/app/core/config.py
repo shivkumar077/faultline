@@ -41,12 +41,30 @@ class Settings(BaseSettings):
     DB_POOL_TIMEOUT: int = 30
     DB_ECHO: bool = False
 
+    # Optional ForgeFit resilience API integration
+    FORGEFIT_BASE_URL: str | None = None
+    FORGEFIT_API_KEY: str | None = None
+    FORGEFIT_TIMEOUT_SECONDS: int = 5
+    FORGEFIT_MAX_WAIT_SECONDS: int = 300
+    FORGEFIT_POLL_INTERVAL_SECONDS: int = 1
+
     @field_validator("DATABASE_URL", mode="after")
     @classmethod
     def assemble_database_url(cls, v: str) -> str:
         if v.startswith("postgresql://"):
             return v.replace("postgresql://", "postgresql+psycopg2://", 1)
         return v
+
+    @field_validator(
+        "FORGEFIT_TIMEOUT_SECONDS",
+        "FORGEFIT_MAX_WAIT_SECONDS",
+        "FORGEFIT_POLL_INTERVAL_SECONDS",
+    )
+    @classmethod
+    def validate_forgefit_timeouts(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("ForgeFit timeout settings must be positive.")
+        return value
 
 
 settings = Settings()

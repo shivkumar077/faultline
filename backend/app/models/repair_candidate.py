@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from app.models.code_snapshot import CodeSnapshot
     from app.models.failure_report import FailureReport
     from app.models.mutation_record import MutationRecord
+    from app.models.repair_evaluation import RepairEvaluation
 
 
 class RepairCandidate(Base):
@@ -100,6 +101,9 @@ class RepairCandidate(Base):
     )
     mutation_record: Mapped["MutationRecord | None"] = relationship(
         "MutationRecord", back_populates="repair_candidates"
+    )
+    evaluations: Mapped[list["RepairEvaluation"]] = relationship(
+        "RepairEvaluation", back_populates="repair_candidate", cascade="all, delete-orphan"
     )
 
     def __repr__(self) -> str:

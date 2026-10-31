@@ -267,6 +267,9 @@ Interactive OpenAPI documentation is automatically served:
 | `GET` | `/api/v1/repair-candidates/{candidate_id}` | Retrieve candidate metadata |
 | `GET` | `/api/v1/repair-candidates/{candidate_id}/diff` | Retrieve the unified diff and source hashes |
 | `PATCH` | `/api/v1/repair-candidates/{candidate_id}/review` | Mark a candidate reviewed or rejected |
+| `POST` | `/api/v1/repair-candidates/{candidate_id}/evaluations` | Apply an isolated patch and run the approved test suite |
+| `GET` | `/api/v1/repair-candidates/{candidate_id}/evaluations` | Paginated evaluation history |
+| `GET` | `/api/v1/repair-evaluations/{evaluation_id}` | Retrieve one persisted evaluation |
 
 ### Milestone 05: Isolated Execution
 
@@ -488,9 +491,125 @@ Example generated diff:
 ```
 
 `validation_status: "syntax_valid"` means only that the generated file parses.
-It does not mean tests passed or that the repair is correct. Candidate
-evaluation, application, and ForgeFit integration are deferred to Milestone
-08. Faultline never writes generated changes to the connected repository.
+It does not mean tests passed or that the repair is correct. Faultline never
+writes generated changes to the connected repository.
+
+---
+
+## Milestone 08: Repair Candidate Evaluation
+
+Evaluation starts from a persisted, syntax-validated candidate and its
+`introduced_failure` diagnosis. Faultline verifies the exact snapshot commit,
+materializes it in a temporary workspace, copies that snapshot into a separate
+candidate workspace without following symlinks, and validates the stored
+unified diff itself. The target path must be a relative Python file inside the
+workspace; the original SHA-256, AST expression location, patch context, and
+proposed SHA-256 must all match before the changed file is parsed. The
+candidate test suite runs only through the existing Docker-backed
+`BaselineRunner` and its two approved pytest/unittest commands. Target code is
+never executed on the API host, and the connected source repository is never
+modified.
+
+Evaluation outcomes are `PASSED`, `PARTIALLY_PASSED`, `FAILED`, `TIMEOUT`,
+`ERROR`, and `INVALID`. A baseline that did not pass, missing diagnosis or
+execution evidence, unsupported frameworks, unsafe paths, malformed patches,
+and hash/AST mismatches are reported as invalid rather than attributed to a
+repair. Docker or runner infrastructure failures are errors, not repair
+failures. The service compares parsed baseline, mutant, and candidate test
+identifiers. Partial success is reported only when the diagnosed test is
+explicitly observed passing while other failures remain, or when available
+test-count evidence shows fewer tests ran. Unparsed or truncated output is
+not treated as proof that a diagnosis was fixed. Raw test output and host
+filesystem paths are not returned or stored in evaluation evidence.
+
+Each request creates a persisted evaluation-history record; a database
+constraint permits at most one active evaluation per candidate. Outcomes
+summarize the test run and failure identifiers and explicitly set
+`behavioral_correctness_proven` to `false`. A passing test run is evidence, not
+a proof that the repair is correct. Rejected candidates cannot be evaluated.
+
+### Optional ForgeFit adapter
+
+When a `forgefit_scenario` is supplied in the evaluation request and
+`FORGEFIT_BASE_URL` is configured, Faultline uses ForgeFit's existing
+`GET /api/status`, `POST /api/runs`, and `GET /api/runs/{run_id}` contract.
+It submits only a named resilience scenario and candidate/evaluation IDs as
+tags; it does not send source code, patches, or credentials in the scenario.
+The adapter records a bounded aggregate report separately from the Faultline
+repair verdict. A missing ForgeFit configuration, unavailable service, failed
+run, or polling timeout is visible in the ForgeFit fields and does not turn a
+passing or failing local test result into a different repair verdict.
+
+ForgeFit is optional. Configure `FORGEFIT_BASE_URL` and, when required by the
+ForgeFit deployment, `FORGEFIT_API_KEY` through deployment secrets. Polling
+and request timeouts are controlled by the `FORGEFIT_*_SECONDS` settings.
+ForgeFit enforces loopback-by-default targets; for a non-loopback target, the
+request must set both `allow_external` and `authorized_acknowledgement`.
+Operators remain responsible for authorizing that target. The adapter does not
+invent or call a patch-scoring endpoint; ForgeFit's resilience run is
+complementary evidence, not a repair evaluation.
+
+### Evaluation API
+
+```http
+POST /api/v1/repair-candidates/{candidate_id}/evaluations
+GET  /api/v1/repair-candidates/{candidate_id}/evaluations?page=1&page_size=20
+GET  /api/v1/repair-evaluations/{evaluation_id}
+```
+
+The request body may be `{}` for local Docker evaluation. `timeout_seconds`
+optionally overrides the configured runner limit (1–3600 seconds). An optional
+`forgefit_scenario` accepts a validated `target_url`, request count, timeout,
+fault parameters, and the two external-target authorization flags.
+
+Example request (ForgeFit omitted):
+
+```json
+{
+  "timeout_seconds": 60
+}
+```
+
+Example response:
+
+```json
+{
+  "id": "c841ef81-30cc-4cd7-9674-d7e01b93c4e7",
+  "repair_candidate_id": "66c7b51e-46f2-43fa-9aad-775e0ac9fd0e",
+  "analysis_run_id": "17d2a37d-b547-4750-9c94-6f4a54b6f4f4",
+  "failure_report_id": "c95409a8-457c-48af-9b05-971c0e8c2443",
+  "baseline_execution_id": "bf9624e4-0ea5-4476-ad1f-d473d41e7363",
+  "mutant_execution_result_id": "58a048b7-54ea-4f4d-b824-68419554acbe",
+  "status": "PASSED",
+  "error_code": null,
+  "exit_code": 0,
+  "duration_ms": 240,
+  "passed_count": 12,
+  "failed_count": 0,
+  "skipped_count": 0,
+  "evidence": {
+    "classification": "candidate_test_execution",
+    "baseline_status": "passed",
+    "mutant_status": "failed",
+    "candidate_failure_ids": [],
+    "diagnosed_test_state": "not_observed",
+    "behavioral_correctness_proven": false
+  },
+  "forgefit_status": "not_requested",
+  "forgefit_run_id": null,
+  "forgefit_result": null,
+  "forgefit_error_code": null,
+  "created_at": "2026-10-31T00:00:00Z",
+  "completed_at": "2026-10-31T00:00:01Z"
+}
+```
+
+**Limitations:** evaluation depends on Docker daemon availability and the
+existing approved pytest/unittest commands. Diagnosis comparison is limited
+to test identifiers parsed from captured output; output truncation can prevent
+per-test attribution. ForgeFit reports resilience metrics only and is not
+proof that a code repair is correct. No patch is automatically accepted,
+committed, or written back to the source repository.
 
 ---
 
@@ -513,9 +632,9 @@ ruff format --check .
 
 ## Current Implementation Status
 
-### Implemented (Milestones 01–07)
-- [x] Nine domain SQLAlchemy models with relationships, cascades, and indexes:
-  - `Project`, `RepositoryConnection`, `CodeSnapshot`, `AnalysisRun`, `BaselineExecution`, `MutationRecord`, `ExecutionResult`, `FailureReport`, `RepairCandidate`
+### Implemented (Milestones 01–08)
+- [x] Ten domain SQLAlchemy models with relationships, cascades, and indexes:
+  - `Project`, `RepositoryConnection`, `CodeSnapshot`, `AnalysisRun`, `BaselineExecution`, `MutationRecord`, `ExecutionResult`, `FailureReport`, `RepairCandidate`, `RepairEvaluation`
 - [x] Persisted repair candidates with migration `0004_repair_candidates`, uniqueness constraints, source hashes, patch content, syntax-validation state, and review lifecycle.
 - [x] Full Pydantic v2 schemas for all domain entities, creation inputs, detailed responses, and paginated wrappers.
 - [x] Decoupled Repository and Service layers for Projects, Analyses, Repositories, Snapshots, and Mutations.
@@ -549,6 +668,8 @@ ruff format --check .
 - [x] Versioned diagnosis, paginated report-list, and report-detail API endpoints.
 - [x] Deterministic isolated repair patch generation from eligible diagnosis evidence and AST mutation metadata.
 - [x] Repair candidate generation, paginated retrieval, diff retrieval, and review API endpoints.
+- [x] Persisted repair evaluation history, isolated patch application, hash/AST/diff validation, baseline/mutant/candidate comparison, and reversible migration `0005_repair_evaluations`.
+- [x] Versioned repair evaluation APIs, pagination, timeout/infrastructure classification, and an optional adapter for ForgeFit's existing asynchronous run contract.
 - [x] Pytest suite covering application startup, CRUD, ingestion and mutation behavior, sandbox policy/lifecycle, persistence, classifications, scoring, and execution APIs.
 - [x] Ruff linting and style configuration.
 
@@ -560,11 +681,10 @@ ruff format --check .
 - The default pytest quiet and unittest discovery commands do not emit passing test identifiers. In those cases diagnosis can compare run-level success but cannot name every test that passed in both runs.
 - Diagnosis depends on captured output; truncated or malformed output may yield a report with missing test or exception details.
 - Diagnosis is deterministic and evidence-based but does not prove causation. It provides remediation guidance and does not generate patches itself or use an LLM.
-- Repair candidates are mutation reversals, not confirmed fixes. Syntax validation does not establish behavioral correctness; patch execution/evaluation and ForgeFit integration are deferred to Milestone 08.
+- Repair candidates are mutation reversals, not confirmed fixes. Syntax validation and test outcomes are evidence only and do not establish behavioral correctness.
 - Repair generation currently supports Python expression mutations with recorded AST locations and exact source hashes. Unsupported diagnoses, mutation types, or ambiguous/missing source evidence are skipped.
 - Execution, diagnosis, and repair generation currently use synchronous API requests.
 
 ### Planned (Upcoming Milestones)
-- [ ] Independent repair candidate evaluation and ForgeFit integration (Milestone 08).
 - [ ] Optional LLM-assisted diagnosis or remediation.
 - [ ] Frontend user interface (pending design system and global styling specifications).

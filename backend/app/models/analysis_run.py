@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from app.models.mutation_record import MutationRecord
     from app.models.project import Project
     from app.models.repair_candidate import RepairCandidate
+    from app.models.repair_evaluation import RepairEvaluation
 
 
 class AnalysisRun(Base):
@@ -73,6 +74,9 @@ class AnalysisRun(Base):
     )
     repair_candidates: Mapped[list["RepairCandidate"]] = relationship(
         "RepairCandidate", back_populates="analysis_run", cascade="all, delete-orphan"
+    )
+    repair_evaluations: Mapped[list["RepairEvaluation"]] = relationship(
+        "RepairEvaluation", back_populates="analysis_run", cascade="all, delete-orphan"
     )
 
     def __repr__(self) -> str:
