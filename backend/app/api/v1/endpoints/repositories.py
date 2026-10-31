@@ -5,11 +5,13 @@ from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.schemas.code_snapshot import CodeSnapshotResponse
 from app.schemas.repository_connection import (
     RepositoryConnectionResponse,
     RepositoryRegistrationRequest,
 )
 from app.services.repository_service import repository_service
+from app.services.snapshot_service import snapshot_service
 
 router = APIRouter(tags=["Repositories"])
 
@@ -50,3 +52,28 @@ def get_repository(
 ) -> RepositoryConnectionResponse:
     """Retrieve repository connection details by UUID."""
     return repository_service.get_repository(db, repository_id)
+
+
+@router.post(
+    "/repositories/{repository_id}/sync",
+    response_model=CodeSnapshotResponse,
+    status_code=status.HTTP_200_OK,
+)
+def sync_repository(
+    repository_id: uuid.UUID,
+    db: Session = Depends(get_db),
+) -> CodeSnapshotResponse:
+    """Trigger ingestion and snapshot generation for the specified repository connection."""
+    return snapshot_service.sync_repository(db, repository_id)
+
+
+@router.get(
+    "/repositories/{repository_id}/snapshots",
+    response_model=Sequence[CodeSnapshotResponse],
+)
+def list_repository_snapshots(
+    repository_id: uuid.UUID,
+    db: Session = Depends(get_db),
+) -> Sequence[CodeSnapshotResponse]:
+    """List all captured source snapshots for a repository connection."""
+    return snapshot_service.list_repository_snapshots(db, repository_id)
