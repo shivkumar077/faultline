@@ -67,6 +67,8 @@ The backend follows a layered, decoupled service-repository architecture designe
 faultline/
 ├── .env.example                     # Environment template configuration
 ├── Dockerfile                       # Production container specification
+├── docker/
+│   └── runner.Dockerfile             # Separate untrusted-test runner image
 ├── docker-compose.yml               # Multi-container orchestration (API + Postgres)
 ├── pyproject.toml                   # Project metadata, dependencies, and tool settings
 ├── alembic.ini                      # Alembic migration configuration
@@ -76,7 +78,8 @@ faultline/
     │   ├── env.py                   # Alembic environment runner
     │   ├── script.py.mako           # Migration template
     │   └── versions/                # Versioned migration files
-    │       └── 0001_initial_schema.py
+    │           ├── 0001_initial_schema.py
+    │           └── 0002_execution_engine.py
     ├── app/
     │   ├── main.py                  # FastAPI application entry point
     │   ├── core/                    # Application settings and custom exceptions
@@ -237,6 +240,47 @@ Interactive OpenAPI documentation is automatically served:
 | `GET` | `/api/v1/analyses` | Paginated list of analysis runs (filters: `project_id`, `status`) |
 | `GET` | `/api/v1/analyses/{analysis_id}` | Retrieve analysis details with execution & report counts |
 | `GET` | `/api/v1/analyses/{analysis_id}/mutations` | List generated mutation records for an analysis run |
+| `POST` | `/api/v1/analyses/{analysis_id}/execute` | Run and persist the baseline followed by each mutant |
+| `GET` | `/api/v1/analyses/{analysis_id}/executions` | Paginated baseline and mutant execution records |
+| `GET` | `/api/v1/executions/{execution_id}` | Retrieve a baseline or mutant execution by UUID |
+
+### Milestone 05: Isolated Execution
+
+The backend runs only the approved pytest or unittest discovery command inside a
+separate `faultline-runner:py312` image. It never falls back to running target
+code on the host. Build the image on the machine that runs the backend:
+
+```powershell
+docker build -f docker/runner.Dockerfile -t faultline-runner:py312 .
+```
+
+The backend image includes the Docker CLI; the API process also needs access to
+a Docker daemon. When the API itself runs in a container, configure a secured
+remote Docker endpoint through `DOCKER_HOST` (and provision its TLS credentials
+through your deployment's secret mechanism). Do not expose an unauthenticated
+Docker TCP endpoint. For safety, the runner receives no host environment
+variables, secrets, or arbitrary mounts. Do not mount the Docker socket into an
+untrusted runner container. The API runtime uses a uniquely named container per
+execution and removes it after completion, including timeout paths.
+
+The runner container uses a non-root UID, disabled networking, a read-only
+container root and source mount, dropped Linux capabilities,
+`no-new-privileges`, CPU/memory/PID limits, bounded stdout/stderr capture, and
+a timeout. Only `/tmp` is writable via a size-limited tmpfs. The image includes
+Python 3.12 and a pinned pytest; it does not install dependencies from target
+repositories. Projects whose tests require additional packages must provide a
+compatible prebuilt runner image in a future configurable runner-image feature.
+
+Test discovery supports Python pytest and unittest suites. The exact snapshot
+commit is materialized independently for baseline and each mutant. Before each
+mutation, Faultline verifies the source SHA-256, uniquely locates the AST
+expression from its line/column metadata, applies one replacement, and checks
+the resulting Python syntax. Execution outputs and test counts are persisted.
+
+Mutation classifications are `KILLED`, `SURVIVED`, `TIMEOUT`, `ERROR`, and
+`INVALID`. Only killed and survived mutants contribute to the score:
+`killed / (killed + survived) * 100`; an empty denominator produces `null`.
+Baseline failures stop mutation execution and leave the score undefined.
 
 ---
 
@@ -248,18 +292,18 @@ Run unit and integration tests using Pytest:
 pytest -v
 ```
 
-Run code formatting and lint verification using Ruff:
+Run lint and formatting verification using Ruff:
 
 ```bash
-ruff check backend
-ruff format --check backend
+ruff check .
+ruff format --check .
 ```
 
 ---
 
 ## Current Implementation Status
 
-### Implemented (Milestones 01, 02, 03 & 04)
+### Implemented (Milestones 01–05)
 - [x] Eight domain SQLAlchemy models with relationships, cascades, and indexes:
   - `Project`, `RepositoryConnection`, `CodeSnapshot`, `AnalysisRun`, `BaselineExecution`, `MutationRecord`, `ExecutionResult`, `FailureReport`
 - [x] Full Pydantic v2 schemas for all domain entities, creation inputs, detailed responses, and paginated wrappers.
@@ -282,10 +326,22 @@ ruff format --check backend
 - [x] Syntax validation through post-mutation parsing (`ast.parse`) and seeded deterministic sampling.
 - [x] AnalysisRun and MutationRecord persistence with full reproducibility manifests.
 - [x] API endpoints for mutation generation (`/snapshots/{id}/mutations`) and retrieval (`/analyses/{id}/mutations`).
-- [x] Pytest suite covering application startup, health endpoints, project CRUD, duplicate slug conflicts, ingestion security, and AST mutation workflows.
+- [x] Controlled Python 3.12 runner image with pinned pytest, non-root execution, and no runtime package installation.
+- [x] Docker sandbox with bounded concurrent output capture, timeout termination, named-container cleanup, fail-closed behavior, strict command allowlisting, and resource/security limits.
+- [x] Strict mutation application with snapshot source hash verification, AST-position matching, syntax validation, and an independent exact-commit workspace for each mutant.
+- [x] Persisted baseline and mutant results, test counts, timeout/infrastructure metadata, all five classifications, and mutation score.
+- [x] Execution API endpoints for starting an analysis execution and listing/retrieving execution records.
+- [x] Alembic migration `0002_execution_engine` for execution metadata and duplicate-execution constraints.
+- [x] Pytest suite covering application startup, CRUD, ingestion and mutation behavior, sandbox policy/lifecycle, persistence, classifications, scoring, and execution APIs.
 - [x] Ruff linting and style configuration.
 
+### Known Limitations
+- The API host must have Docker CLI and daemon access. Docker socket mounts are not made available to untrusted runner containers.
+- The Docker daemon resolves bind-mount paths on its own host. For local Docker Desktop execution, run the API on the host; the provided backend Compose service does not expose a daemon socket or shared daemon-visible workspace.
+- The default runner includes pytest but not arbitrary target-repository dependencies; those tests may fail until additional controlled images are supported.
+- Docker integration could not be smoke-tested in this environment because Docker Desktop is unavailable. The execution tests mock Docker/subprocess boundaries.
+- Execution currently supports Python test suites and synchronous API requests; diagnosis and automated repair remain later milestones.
+
 ### Planned (Upcoming Milestones)
-- [ ] Isolated test sandbox execution runner (containerized baseline and mutation runs).
 - [ ] AI-driven root cause diagnostic engine and remediation patch generator.
 - [ ] Frontend user interface (pending design system and global styling specifications).
