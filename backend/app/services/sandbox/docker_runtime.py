@@ -6,6 +6,9 @@ Never executes untrusted code on the host — fails closed if Docker is unavaila
 
 import logging
 import subprocess
+import threading
+import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -24,10 +27,16 @@ class ContainerResult:
     stderr: str
     duration_ms: int
     timed_out: bool = False
+    output_limited: bool = False
 
 
 class DockerRuntime:
     """Manages Docker container lifecycle for sandboxed test execution."""
+
+    APPROVED_COMMANDS = {
+        ("python", "-m", "pytest", "-q", "--tb=short", "-p", "no:cacheprovider"),
+        ("python", "-m", "unittest", "discover", "-s", ".", "-p", "test*.py"),
+    }
 
     def __init__(self, config: SandboxConfig | None = None):
         self.config = config or sandbox_config
@@ -66,7 +75,6 @@ class DockerRuntime:
         command: list[str],
         *,
         timeout_seconds: int | None = None,
-        environment: dict[str, str] | None = None,
     ) -> ContainerResult:
         """Execute a command inside an isolated Docker container.
 
@@ -74,7 +82,6 @@ class DockerRuntime:
             workspace_path: Host directory to mount read-only at /workspace.
             command: Command and arguments to run inside the container.
             timeout_seconds: Override default timeout.
-            environment: Additional environment variables.
 
         Returns:
             ContainerResult with captured output.
@@ -86,53 +93,95 @@ class DockerRuntime:
         if not workspace_path.is_dir():
             raise ValidationException(f"Workspace directory does not exist: {workspace_path}")
 
-        timeout = timeout_seconds or self.config.timeout_seconds
+        if tuple(command) not in self.APPROVED_COMMANDS:
+            raise ValidationException(
+                "Only approved pytest and unittest runner commands are allowed."
+            )
 
-        docker_cmd = self._build_docker_command(workspace_path, command, environment=environment)
+        timeout = timeout_seconds if timeout_seconds is not None else self.config.timeout_seconds
+        if timeout <= 0:
+            raise ValidationException("Execution timeout must be greater than zero.")
+
+        container_name = f"faultline-{uuid.uuid4().hex}"
+        docker_cmd = self._build_docker_command(workspace_path, command, container_name)
 
         logger.info(
-            "Running container: image=%s, timeout=%ds, cmd=%s",
+            "Running sandbox container: image=%s, timeout=%ds",
             self.config.docker_image,
             timeout,
-            " ".join(command),
         )
 
-        import time
-
         start_ns = time.perf_counter_ns()
+        process: subprocess.Popen[bytes] | None = None
+        output = {"stdout": bytearray(), "stderr": bytearray()}
+        truncated = {"stdout": False, "stderr": False}
+        output_lock = threading.Lock()
+        output_exceeded = threading.Event()
+        capture_failed = threading.Event()
+        readers: list[threading.Thread] = []
+        timed_out = False
 
         try:
-            result = subprocess.run(
+            process = subprocess.Popen(
                 docker_cmd,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 shell=False,
-                check=False,
             )
-            elapsed_ms = (time.perf_counter_ns() - start_ns) // 1_000_000
+            readers = [
+                threading.Thread(
+                    target=self._capture_pipe,
+                    args=(
+                        process.stdout,
+                        output["stdout"],
+                        "stdout",
+                        truncated,
+                        self.config.max_stdout_bytes,
+                        output_lock,
+                        output_exceeded,
+                        capture_failed,
+                    ),
+                    daemon=True,
+                ),
+                threading.Thread(
+                    target=self._capture_pipe,
+                    args=(
+                        process.stderr,
+                        output["stderr"],
+                        "stderr",
+                        truncated,
+                        self.config.max_stderr_bytes,
+                        output_lock,
+                        output_exceeded,
+                        capture_failed,
+                    ),
+                    daemon=True,
+                ),
+            ]
+            for reader in readers:
+                reader.start()
 
-            stdout = self._truncate_output(result.stdout, self.config.max_stdout_bytes)
-            stderr = self._truncate_output(result.stderr, self.config.max_stderr_bytes)
+            deadline = time.monotonic() + timeout
+            while process.poll() is None:
+                if output_exceeded.is_set():
+                    logger.warning("Sandbox output limit exceeded; stopping container")
+                    self._terminate_process(process)
+                    break
+                if time.monotonic() >= deadline:
+                    timed_out = True
+                    logger.warning("Sandbox execution timed out after %ds", timeout)
+                    self._terminate_process(process)
+                    break
+                time.sleep(0.02)
 
-            return ContainerResult(
-                exit_code=result.returncode,
-                stdout=stdout,
-                stderr=stderr,
-                duration_ms=elapsed_ms,
-                timed_out=False,
-            )
-
-        except subprocess.TimeoutExpired:
-            elapsed_ms = (time.perf_counter_ns() - start_ns) // 1_000_000
-            logger.warning("Container execution timed out after %ds", timeout)
-            return ContainerResult(
-                exit_code=-1,
-                stdout="",
-                stderr=f"Execution timed out after {timeout} seconds.",
-                duration_ms=elapsed_ms,
-                timed_out=True,
-            )
+            try:
+                process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                try:
+                    process.kill()
+                except ProcessLookupError:
+                    pass
+                process.wait()
 
         except FileNotFoundError as exc:
             raise FaultlineException(
@@ -140,16 +189,50 @@ class DockerRuntime:
                 detail="Docker CLI not found. Cannot execute sandboxed tests.",
                 error_code="DOCKER_NOT_FOUND",
             ) from exc
+        except OSError as exc:
+            raise FaultlineException(
+                status_code=503,
+                detail="Docker CLI could not start the sandbox container.",
+                error_code="DOCKER_START_FAILED",
+            ) from exc
+        finally:
+            if process is not None:
+                for reader in readers:
+                    reader.join(timeout=2)
+                for pipe in (process.stdout, process.stderr):
+                    if pipe is not None:
+                        pipe.close()
+                for reader in readers:
+                    reader.join(timeout=1)
+            self._remove_container(container_name)
+
+        if capture_failed.is_set():
+            raise FaultlineException(
+                status_code=503,
+                detail="Sandbox output capture failed.",
+                error_code="OUTPUT_CAPTURE_FAILED",
+            )
+        elapsed_ms = (time.perf_counter_ns() - start_ns) // 1_000_000
+        stdout = self._decode_output(output["stdout"], truncated["stdout"])
+        stderr = self._decode_output(output["stderr"], truncated["stderr"])
+        if timed_out:
+            stderr += f"\nExecution timed out after {timeout} seconds."
+        elif output_exceeded.is_set():
+            stderr += "\nExecution stopped because output exceeded the configured limit."
+        return ContainerResult(
+            exit_code=process.returncode if process is not None else -1,
+            stdout=stdout,
+            stderr=stderr,
+            duration_ms=elapsed_ms,
+            timed_out=timed_out,
+            output_limited=output_exceeded.is_set(),
+        )
 
     def _build_docker_command(
-        self,
-        workspace_path: Path,
-        command: list[str],
-        *,
-        environment: dict[str, str] | None = None,
+        self, workspace_path: Path, command: list[str], container_name: str
     ) -> list[str]:
         """Assemble the full docker run command with security flags."""
-        docker_cmd = ["docker", "run", "--rm"]
+        docker_cmd = ["docker", "run", "--name", container_name]
 
         # Add security and resource flags
         docker_cmd.extend(self.config.to_docker_flags())
@@ -166,11 +249,6 @@ class DockerRuntime:
         # Set working directory
         docker_cmd.extend(["-w", self.config.workspace_mount_target])
 
-        # Add environment variables
-        if environment:
-            for key, value in environment.items():
-                docker_cmd.extend(["-e", f"{key}={value}"])
-
         # Image and command
         docker_cmd.append(self.config.docker_image)
         docker_cmd.extend(command)
@@ -178,15 +256,73 @@ class DockerRuntime:
         return docker_cmd
 
     @staticmethod
-    def _truncate_output(output: str, max_bytes: int) -> str:
-        """Truncate output to max_bytes, adding a truncation notice."""
-        if len(output.encode("utf-8", errors="replace")) <= max_bytes:
-            return output
+    def _terminate_process(process: subprocess.Popen[bytes]) -> None:
+        try:
+            process.terminate()
+        except ProcessLookupError:
+            return
 
-        truncated = output.encode("utf-8", errors="replace")[:max_bytes].decode(
-            "utf-8", errors="replace"
-        )
-        return truncated + "\n... [output truncated]"
+    @staticmethod
+    def _capture_pipe(
+        pipe,
+        destination: bytearray,
+        stream_name: str,
+        truncated: dict[str, bool],
+        max_bytes: int,
+        lock: threading.Lock,
+        output_exceeded: threading.Event,
+        capture_failed: threading.Event,
+    ) -> None:
+        """Drain a pipe continuously while retaining only the configured byte limit."""
+        try:
+            while chunk := pipe.read(8192):
+                with lock:
+                    remaining = max_bytes - len(destination)
+                    if remaining > 0:
+                        destination.extend(chunk[:remaining])
+                    if len(chunk) > remaining:
+                        truncated[stream_name] = True
+                        output_exceeded.set()
+        except (OSError, ValueError):
+            capture_failed.set()
+
+    @staticmethod
+    def _decode_output(data: bytearray, truncated: bool) -> str:
+        output = bytes(data).decode("utf-8", errors="replace")
+        if truncated:
+            output += "\n... [output truncated]"
+        return output
+
+    @staticmethod
+    def _remove_container(container_name: str) -> None:
+        """Remove the named container even if the docker run client was terminated."""
+        try:
+            result = subprocess.run(
+                ["docker", "rm", "--force", container_name],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                shell=False,
+                check=False,
+            )
+        except FileNotFoundError:
+            return
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            logger.error("Docker container cleanup command failed (%s)", type(exc).__name__)
+            raise FaultlineException(
+                status_code=503,
+                detail="Sandbox container cleanup could not be confirmed.",
+                error_code="DOCKER_CLEANUP_FAILED",
+            ) from exc
+        if result.returncode != 0:
+            if "no such container" in result.stderr.lower():
+                return
+            logger.error("Docker container cleanup returned a failure status")
+            raise FaultlineException(
+                status_code=503,
+                detail="Sandbox container cleanup could not be confirmed.",
+                error_code="DOCKER_CLEANUP_FAILED",
+            )
 
 
 docker_runtime = DockerRuntime()
