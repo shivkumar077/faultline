@@ -79,7 +79,8 @@ faultline/
     │   ├── script.py.mako           # Migration template
     │   └── versions/                # Versioned migration files
     │           ├── 0001_initial_schema.py
-    │           └── 0002_execution_engine.py
+    │           ├── 0002_execution_engine.py
+    │           └── 0003_failure_diagnosis.py
     ├── app/
     │   ├── main.py                  # FastAPI application entry point
     │   ├── core/                    # Application settings and custom exceptions
@@ -106,21 +107,26 @@ faultline/
     │   │   ├── baseline_execution.py
     │   │   ├── mutation_record.py
     │   │   ├── execution_result.py
-    │   │   └── failure_report.py
+    │   │   ├── failure_report.py
+    │   │   └── diagnosis.py
     │   ├── repositories/            # Data access layer
     │   │   ├── base.py
     │   │   ├── project_repository.py
-    │   │   └── analysis_repository.py
+    │   │   ├── analysis_repository.py
+    │   │   └── failure_report_repository.py
     │   ├── services/                # Business logic services
     │   │   ├── project_service.py
-    │   │   └── analysis_service.py
+    │   │   ├── analysis_service.py
+    │   │   ├── diagnosis_parser.py
+    │   │   └── diagnosis_service.py
     │   └── api/
     │       └── v1/                  # Versioned API routes
     │           ├── router.py
     │           └── endpoints/
     │               ├── health.py
     │               ├── projects.py
-    │               └── analyses.py
+    │               ├── analyses.py
+    │               └── diagnoses.py
     └── tests/                       # Pytest test suite
         ├── conftest.py              # Test database fixtures and FastAPI test client
         ├── test_health.py           # Health checks and application metadata tests
@@ -243,6 +249,9 @@ Interactive OpenAPI documentation is automatically served:
 | `POST` | `/api/v1/analyses/{analysis_id}/execute` | Run and persist the baseline followed by each mutant |
 | `GET` | `/api/v1/analyses/{analysis_id}/executions` | Paginated baseline and mutant execution records |
 | `GET` | `/api/v1/executions/{execution_id}` | Retrieve a baseline or mutant execution by UUID |
+| `POST` | `/api/v1/analyses/{analysis_id}/diagnose` | Compare persisted baseline and selected mutant results |
+| `GET` | `/api/v1/analyses/{analysis_id}/diagnoses` | Paginated diagnosis reports for an analysis |
+| `GET` | `/api/v1/diagnoses/{report_id}` | Retrieve one diagnosis report by UUID |
 
 ### Milestone 05: Isolated Execution
 
@@ -284,6 +293,135 @@ Baseline failures stop mutation execution and leave the score undefined.
 
 ---
 
+## Milestone 06: Failure Diagnosis
+
+Diagnosis consumes persisted output only; it does not rerun tests, modify source
+code, generate patches, or call an LLM. `diagnosis_parser.py` extracts observed
+pytest/unittest failure identifiers, exception data, assertions, source frames,
+and explicitly named passing tests. Missing or truncated information remains
+null. `diagnosis_service.py` compares each result against its analysis baseline
+and persists reports through the existing `FailureReport` model. Reports link
+to the analysis and, when applicable, the baseline execution, mutant result,
+and mutation record. A unique diagnosis key makes repeated requests
+idempotent; report writes are committed separately from execution records.
+
+The diagnosis endpoint accepts an optional list of mutant execution IDs; an
+omitted list means all persisted results. Send `{}` to diagnose all results:
+
+```json
+{
+  "execution_ids": ["<execution-result-uuid>"]
+}
+```
+
+Diagnosis categories include `baseline_failure`, `introduced_failure`,
+`existing_baseline_failure`, `failure_changed`, `timeout`,
+`infrastructure_error`, `execution_error`, and `invalid_mutation`. A failure
+is classified as introduced only when the baseline passed and the mutant
+failed. A matching baseline test and failure signature are explicitly marked
+pre-existing; a changed signature is reported as a changed symptom, not as a
+new failure. Timeouts, infrastructure errors, and invalid mutations do not
+produce source-level causal claims. When both runs passed, named test IDs are
+compared only if output explicitly contains them; otherwise the response notes
+run-level success with no asserted test identity.
+
+Confidence is a deterministic evidence score from 0.0 to 1.0, not a
+probability. For an introduced failure, scoring starts at 0.55 and adds 0.10
+for an identified test, 0.15 for a traceback frame in the mutated file, 0.10
+for a frame on the mutation line, and 0.05 for an observed exception or
+assertion, capped at 0.95. Changed failures use a 0.45 base with the same
+evidence increments. Exact pre-existing failure matches score 0.98 for the
+classification but are marked `not_attributed`; timeout and infrastructure
+classification scores describe confidence in the observed execution status,
+not in a code cause. Each report includes its evidence and whether its
+attribution is inferred, unknown, or explicitly not attributed.
+
+Example response (IDs and values are illustrative):
+
+```json
+{
+  "analysis_run_id": "<analysis-uuid>",
+  "baseline_execution_id": "<baseline-uuid>",
+  "summary": {
+    "baseline_failures": 0,
+    "introduced_failures": 1,
+    "existing_failures": 0,
+    "changed_failures": 0,
+    "passed_both_tests_observed": 0,
+    "failure_details_unavailable": 0,
+    "timed_out": 0,
+    "infrastructure_errors": 0,
+    "execution_errors": 0,
+    "invalid_mutations": 0,
+    "passing_runs_without_shared_test_ids": 0
+  },
+  "comparisons": [{
+    "execution_result_id": "<execution-result-uuid>",
+    "mutation_record_id": "<mutation-uuid>",
+    "test_identifier": "tests/test_math.py::test_total",
+    "category": "introduced_failure",
+    "confidence_score": 0.95,
+    "explanation": "The baseline passed and this mutant execution failed; association is not proof of sole cause."
+  }],
+  "reports": [{
+    "id": "<failure-report-uuid>",
+    "analysis_run_id": "<analysis-uuid>",
+    "execution_result_id": "<execution-result-uuid>",
+    "baseline_execution_id": null,
+    "mutation_record_id": "<mutation-uuid>",
+    "diagnosis_key": "<sha256>",
+    "title": "Introduced failure: tests/test_math.py::test_total (AssertionError)",
+    "failure_type": "introduced_failure",
+    "category": "introduced_failure",
+    "severity": "high",
+    "confidence_score": 0.95,
+    "causal_attribution": "inferred",
+    "affected_test": "tests/test_math.py::test_total",
+    "test_identifier": "tests/test_math.py::test_total",
+    "test_file": "tests/test_math.py",
+    "test_class": null,
+    "test_function": "test_total",
+    "mutation_file": "src/math_ops.py",
+    "mutation_line": 27,
+    "original_expression": "left * right",
+    "mutated_expression": "left + right",
+    "exception_type": "AssertionError",
+    "exception_message": "expected values to match",
+    "failing_assertion": "assert actual == expected",
+    "failure_summary": "AssertionError: expected values to match",
+    "source_file": "src/math_ops.py",
+    "source_line": 27,
+    "source_function": "multiply",
+    "traceback_frames": [{
+      "file_path": "src/math_ops.py",
+      "line_number": 27,
+      "function_name": "multiply",
+      "source_line": "return left + right"
+    }],
+    "evidence": [{
+      "kind": "mutation_line_in_traceback",
+      "detail": "A traceback frame points to the mutated line.",
+      "source": "TracebackFrame.line_number",
+      "supports_cause": true
+    }],
+    "comparison_summary": "The baseline passed; the mutant failed. Association is not proof of sole cause.",
+    "root_cause_analysis": "The mutant execution newly failed after the expression changed; this remains an inferred association.",
+    "suggested_repair": "Review the failing assertion and mutated expression, then add or update a regression test. No code patch was generated.",
+    "status": "open",
+    "created_at": "2026-10-31T00:00:00Z",
+    "updated_at": "2026-10-31T00:00:00Z"
+  }]
+}
+```
+
+`GET /api/v1/analyses/{analysis_id}/diagnoses` supports `page` and
+`page_size` pagination. `GET /api/v1/diagnoses/{report_id}` retrieves an
+individual persisted report. The request returns `409` if execution is still
+running or no baseline exists, `404` for missing resources, and `422` for
+invalid execution IDs or pagination values.
+
+---
+
 ## Verification & Testing
 
 Run unit and integration tests using Pytest:
@@ -303,7 +441,7 @@ ruff format --check .
 
 ## Current Implementation Status
 
-### Implemented (Milestones 01–05)
+### Implemented (Milestones 01–06)
 - [x] Eight domain SQLAlchemy models with relationships, cascades, and indexes:
   - `Project`, `RepositoryConnection`, `CodeSnapshot`, `AnalysisRun`, `BaselineExecution`, `MutationRecord`, `ExecutionResult`, `FailureReport`
 - [x] Full Pydantic v2 schemas for all domain entities, creation inputs, detailed responses, and paginated wrappers.
@@ -332,6 +470,10 @@ ruff format --check .
 - [x] Persisted baseline and mutant results, test counts, timeout/infrastructure metadata, all five classifications, and mutation score.
 - [x] Execution API endpoints for starting an analysis execution and listing/retrieving execution records.
 - [x] Alembic migration `0002_execution_engine` for execution metadata and duplicate-execution constraints.
+- [x] Deterministic pytest/unittest failure and traceback parsing, with nulls for unavailable evidence.
+- [x] Baseline-to-mutant diagnosis for introduced, pre-existing, changed, passed-both, timeout, infrastructure, execution, and invalid-mutation outcomes.
+- [x] Evidence-backed `FailureReport` fields and relationships, deterministic confidence scoring, idempotent persistence, and migration `0003_failure_diagnosis`.
+- [x] Versioned diagnosis, paginated report-list, and report-detail API endpoints.
 - [x] Pytest suite covering application startup, CRUD, ingestion and mutation behavior, sandbox policy/lifecycle, persistence, classifications, scoring, and execution APIs.
 - [x] Ruff linting and style configuration.
 
@@ -340,8 +482,12 @@ ruff format --check .
 - The Docker daemon resolves bind-mount paths on its own host. For local Docker Desktop execution, run the API on the host; the provided backend Compose service does not expose a daemon socket or shared daemon-visible workspace.
 - The default runner includes pytest but not arbitrary target-repository dependencies; those tests may fail until additional controlled images are supported.
 - Docker integration could not be smoke-tested in this environment because Docker Desktop is unavailable. The execution tests mock Docker/subprocess boundaries.
-- Execution currently supports Python test suites and synchronous API requests; diagnosis and automated repair remain later milestones.
+- The default pytest quiet and unittest discovery commands do not emit passing test identifiers. In those cases diagnosis can compare run-level success but cannot name every test that passed in both runs.
+- Diagnosis depends on captured output; truncated or malformed output may yield a report with missing test or exception details.
+- Diagnosis is deterministic and evidence-based but does not prove causation. It provides remediation guidance only and does not generate/apply patches or use an LLM.
+- Execution and diagnosis currently use synchronous API requests.
 
 ### Planned (Upcoming Milestones)
-- [ ] AI-driven root cause diagnostic engine and remediation patch generator.
+- [ ] Automated code repair and patch evaluation.
+- [ ] Optional LLM-assisted diagnosis or remediation.
 - [ ] Frontend user interface (pending design system and global styling specifications).
