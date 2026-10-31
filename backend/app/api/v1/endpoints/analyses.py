@@ -44,6 +44,4 @@ def list_analysis_mutations(
     db: Session = Depends(get_db),
 ) -> PaginatedResponse[MutationRecordResponse]:
     """Retrieve a paginated list of mutation records generated for an analysis run."""
-    return mutation_service.list_analysis_mutations(
-        db, analysis_id, page=page, page_size=page_size
-    )
+    return mutation_service.list_analysis_mutations(db, analysis_id, page=page, page_size=page_size)

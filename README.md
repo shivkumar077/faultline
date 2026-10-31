@@ -233,8 +233,10 @@ Interactive OpenAPI documentation is automatically served:
 | `POST` | `/api/v1/repositories/{repository_id}/sync` | Ingest repository, capture source inventory snapshot |
 | `GET` | `/api/v1/repositories/{repository_id}/snapshots` | List source snapshots for a repository connection |
 | `GET` | `/api/v1/snapshots/{snapshot_id}` | Retrieve source inventory and snapshot metadata |
+| `POST` | `/api/v1/snapshots/{snapshot_id}/mutations` | Generate deterministic AST code mutations |
 | `GET` | `/api/v1/analyses` | Paginated list of analysis runs (filters: `project_id`, `status`) |
 | `GET` | `/api/v1/analyses/{analysis_id}` | Retrieve analysis details with execution & report counts |
+| `GET` | `/api/v1/analyses/{analysis_id}/mutations` | List generated mutation records for an analysis run |
 
 ---
 
@@ -257,11 +259,11 @@ ruff format --check backend
 
 ## Current Implementation Status
 
-### Implemented (Milestones 01, 02 & 03)
+### Implemented (Milestones 01, 02, 03 & 04)
 - [x] Eight domain SQLAlchemy models with relationships, cascades, and indexes:
   - `Project`, `RepositoryConnection`, `CodeSnapshot`, `AnalysisRun`, `BaselineExecution`, `MutationRecord`, `ExecutionResult`, `FailureReport`
 - [x] Full Pydantic v2 schemas for all domain entities, creation inputs, detailed responses, and paginated wrappers.
-- [x] Decoupled Repository and Service layers for Projects, Analyses, Repositories, and Snapshots.
+- [x] Decoupled Repository and Service layers for Projects, Analyses, Repositories, Snapshots, and Mutations.
 - [x] FastAPI application entry point (`backend/app/main.py`) with lifespan management, CORS, and centralized exception handling.
 - [x] Root and versioned health endpoints (`/health` and `/api/v1/health`).
 - [x] Alembic migration configuration and initial migration (`0001_initial_schema`) covering all eight tables.
@@ -272,12 +274,18 @@ ruff format --check backend
 - [x] Safe shallow Git cloning using subprocess without shell, timeout limits, and isolated temporary directory lifecycle.
 - [x] Source inventory inspection with language distribution, SHA-256 hashing, directory pruning, binary skipping, and symlink protection.
 - [x] Source snapshot persistence and deduplication on identical commit hashes.
-- [x] Repository connection and snapshot API endpoints (`/projects/{id}/repositories`, `/repositories/{id}`, `/repositories/{id}/sync`, `/repositories/{id}/snapshots`, `/snapshots/{id}`).
-- [x] Pytest suite covering application startup, health endpoints, project CRUD, duplicate slug conflicts, ingestion security, and snapshot workflows.
+- [x] Exact snapshot commit materialization in isolated temporary workspaces.
+- [x] Deterministic Python AST mutation engine with 3 modular operators:
+  - Comparison operator mutation (`==`, `!=`, `>`, `>=`, `<`, `<=`)
+  - Boolean operator mutation (`and` $\leftrightarrow$ `or`)
+  - Numeric boundary mutations in comparison expressions ($n-1, n+1$)
+- [x] Syntax validation through post-mutation parsing (`ast.parse`) and seeded deterministic sampling.
+- [x] AnalysisRun and MutationRecord persistence with full reproducibility manifests.
+- [x] API endpoints for mutation generation (`/snapshots/{id}/mutations`) and retrieval (`/analyses/{id}/mutations`).
+- [x] Pytest suite covering application startup, health endpoints, project CRUD, duplicate slug conflicts, ingestion security, and AST mutation workflows.
 - [x] Ruff linting and style configuration.
 
 ### Planned (Upcoming Milestones)
-- [ ] Code-level mutation injection engine (AST-based syntax-valid mutations).
 - [ ] Isolated test sandbox execution runner (containerized baseline and mutation runs).
 - [ ] AI-driven root cause diagnostic engine and remediation patch generator.
 - [ ] Frontend user interface (pending design system and global styling specifications).

@@ -146,15 +146,19 @@ class PythonAstMutator:
 
                 # Operator C: Numeric boundary in comparison (e.g. 10 -> 9, 10 -> 11)
                 nums_to_check: list[tuple[ast.AST, str]] = []
-                if isinstance(node.left, ast.Constant) and isinstance(
-                    node.left.value, (int, float)
-                ) and not isinstance(node.left.value, bool):
+                if (
+                    isinstance(node.left, ast.Constant)
+                    and isinstance(node.left.value, (int, float))
+                    and not isinstance(node.left.value, bool)
+                ):
                     nums_to_check.append((node.left, "left"))
 
                 for c_idx, comp in enumerate(node.comparators):
-                    if isinstance(comp, ast.Constant) and isinstance(
-                        comp.value, (int, float)
-                    ) and not isinstance(comp.value, bool):
+                    if (
+                        isinstance(comp, ast.Constant)
+                        and isinstance(comp.value, (int, float))
+                        and not isinstance(comp.value, bool)
+                    ):
                         nums_to_check.append((comp, f"comp_{c_idx}"))
 
                 for num_node, pos_label in nums_to_check:
@@ -213,7 +217,7 @@ class PythonAstMutator:
                     new_op_cls = ast.And
 
                 if new_op_cls is not None:
-                    pos_key = (node.lineno, node.col_offset, "bool_op")
+                    pos_key = (node.lineno, node.col_offset, f"bool_{orig_op_cls.__name__}")
                     if pos_key in seen_positions:
                         continue
                     seen_positions.add(pos_key)
@@ -226,6 +230,7 @@ class PythonAstMutator:
                             isinstance(sub, ast.BoolOp)
                             and sub.lineno == node.lineno
                             and sub.col_offset == node.col_offset
+                            and isinstance(sub.op, orig_op_cls)
                         ):
                             sub.op = new_op_cls()
                             break

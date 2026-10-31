@@ -34,9 +34,7 @@ class MutationService:
         snapshot = self.snapshot_svc.get_snapshot_model(db, snapshot_id)
 
         if not snapshot.repository_connection:
-            raise ValidationException(
-                "Snapshot does not have an associated repository connection."
-            )
+            raise ValidationException("Snapshot does not have an associated repository connection.")
 
         repo_url = snapshot.repository_connection.repository_url
 
