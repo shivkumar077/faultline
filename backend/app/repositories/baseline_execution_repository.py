@@ -35,5 +35,13 @@ class BaselineExecutionRepository(BaseRepository[BaselineExecution]):
         )
         return db.scalars(stmt).all()
 
+    def exists_for_analysis(self, db: Session, analysis_id: uuid.UUID) -> bool:
+        stmt = (
+            select(BaselineExecution.id)
+            .where(BaselineExecution.analysis_run_id == analysis_id)
+            .limit(1)
+        )
+        return db.scalar(stmt) is not None
+
 
 baseline_execution_repository = BaselineExecutionRepository()
