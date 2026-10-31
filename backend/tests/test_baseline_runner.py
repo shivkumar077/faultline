@@ -121,3 +121,4 @@ def test_baseline_runner_custom_command(tmp_path: Path, mock_runtime, mock_disco
     assert output.command == "pytest -k unit"
     assert output.framework == "custom"
     mock_discovery.discover.assert_not_called()
+

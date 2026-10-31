@@ -139,3 +139,4 @@ def test_workspace_manager_lifecycle(tmp_path: Path):
 
     # Cleaned up after context manager
     assert not ws.exists()
+

@@ -78,3 +78,4 @@ def test_test_discovery_ignores_venv_and_git(tmp_path: Path):
     assert result.has_tests
     assert len(result.test_files) == 1
     assert result.test_files[0] == "tests/test_valid.py"
+
