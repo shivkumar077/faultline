@@ -70,8 +70,10 @@ class MutationService:
                         "mutation_type": m.mutation_type,
                         "target_file": m.target_file,
                         "line_number": m.line_number,
+                        "col_offset": m.col_offset,
                         "original_code": m.original_code,
                         "mutated_code": m.mutated_code,
+                        "source_sha256": plan.file_hashes[m.target_file],
                         "status": "applied",
                     },
                 )
