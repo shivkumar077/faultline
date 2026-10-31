@@ -53,7 +53,15 @@ class TestDiscoveryService:
 
         if has_pytest_config or uses_pytest_imports:
             framework = "pytest"
-            cmd = ["python", "-m", "pytest", "-q", "--tb=short"]
+            cmd = [
+                "python",
+                "-m",
+                "pytest",
+                "-q",
+                "--tb=short",
+                "-p",
+                "no:cacheprovider",
+            ]
         else:
             # Fall back to Python unittest discovery
             framework = "unittest"
