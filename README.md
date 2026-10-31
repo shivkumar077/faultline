@@ -80,7 +80,8 @@ faultline/
     │   └── versions/                # Versioned migration files
     │           ├── 0001_initial_schema.py
     │           ├── 0002_execution_engine.py
-    │           └── 0003_failure_diagnosis.py
+    │           ├── 0003_failure_diagnosis.py
+    │           └── 0004_repair_candidates.py
     ├── app/
     │   ├── main.py                  # FastAPI application entry point
     │   ├── core/                    # Application settings and custom exceptions
@@ -97,7 +98,8 @@ faultline/
     │   │   ├── baseline_execution.py
     │   │   ├── mutation_record.py
     │   │   ├── execution_result.py
-    │   │   └── failure_report.py
+    │   │   ├── failure_report.py
+    │   │   └── repair_candidate.py
     │   ├── schemas/                 # Pydantic v2 models and common response types
     │   │   ├── common.py
     │   │   ├── project.py
@@ -108,17 +110,21 @@ faultline/
     │   │   ├── mutation_record.py
     │   │   ├── execution_result.py
     │   │   ├── failure_report.py
-    │   │   └── diagnosis.py
+    │   │   ├── diagnosis.py
+    │   │   └── repair_candidate.py
     │   ├── repositories/            # Data access layer
     │   │   ├── base.py
     │   │   ├── project_repository.py
     │   │   ├── analysis_repository.py
-    │   │   └── failure_report_repository.py
+    │   │   ├── failure_report_repository.py
+    │   │   └── repair_candidate_repository.py
     │   ├── services/                # Business logic services
     │   │   ├── project_service.py
     │   │   ├── analysis_service.py
     │   │   ├── diagnosis_parser.py
-    │   │   └── diagnosis_service.py
+    │   │   ├── diagnosis_service.py
+    │   │   ├── repair_patch_generator.py
+    │   │   └── repair_service.py
     │   └── api/
     │       └── v1/                  # Versioned API routes
     │           ├── router.py
@@ -126,12 +132,15 @@ faultline/
     │               ├── health.py
     │               ├── projects.py
     │               ├── analyses.py
-    │               └── diagnoses.py
+    │               ├── diagnoses.py
+    │               └── repairs.py
     └── tests/                       # Pytest test suite
         ├── conftest.py              # Test database fixtures and FastAPI test client
         ├── test_health.py           # Health checks and application metadata tests
         ├── test_projects.py         # Project CRUD and duplicate slug tests
-        └── test_analyses.py         # Analysis listing and retrieval tests
+        ├── test_analyses.py         # Analysis listing and retrieval tests
+        ├── test_repair_service.py   # Repair safety and patch generation tests
+        └── test_repair_api.py       # Repair candidate API tests
 ```
 
 ---
@@ -252,6 +261,12 @@ Interactive OpenAPI documentation is automatically served:
 | `POST` | `/api/v1/analyses/{analysis_id}/diagnose` | Compare persisted baseline and selected mutant results |
 | `GET` | `/api/v1/analyses/{analysis_id}/diagnoses` | Paginated diagnosis reports for an analysis |
 | `GET` | `/api/v1/diagnoses/{report_id}` | Retrieve one diagnosis report by UUID |
+| `POST` | `/api/v1/analyses/{analysis_id}/repair-candidates` | Generate candidates for eligible diagnoses |
+| `POST` | `/api/v1/analyses/{analysis_id}/diagnoses/{report_id}/repair-candidates` | Generate a candidate for one diagnosis |
+| `GET` | `/api/v1/analyses/{analysis_id}/repair-candidates` | Paginated repair candidates for an analysis |
+| `GET` | `/api/v1/repair-candidates/{candidate_id}` | Retrieve candidate metadata |
+| `GET` | `/api/v1/repair-candidates/{candidate_id}/diff` | Retrieve the unified diff and source hashes |
+| `PATCH` | `/api/v1/repair-candidates/{candidate_id}/review` | Mark a candidate reviewed or rejected |
 
 ### Milestone 05: Isolated Execution
 
@@ -422,6 +437,63 @@ invalid execution IDs or pagination values.
 
 ---
 
+## Milestone 07: Automated Repair Candidate Generation
+
+Repair generation consumes persisted `FailureReport` and `MutationRecord`
+metadata; it does not rerun tests, call an LLM, execute target code, or modify
+the connected repository. It accepts only inferred `introduced_failure`
+diagnoses with causal evidence and confidence of at least `0.55`, an applied
+mutation, and matching diagnosis/mutation expressions. Other diagnoses are
+returned as explicit skip reason codes.
+
+For each eligible diagnosis, Faultline materializes the analysis snapshot's
+exact commit in an isolated temporary workspace and verifies the recorded
+source hash. It rejects absolute or traversing paths, symlinks, missing files,
+hash mismatches, unsupported mutation types, and AST locations that do not
+identify exactly one expression. The supported deterministic restorations
+reverse a recorded comparison-operator, boolean-operator, numeric-boundary,
+or single arithmetic-operator mutation. Exact source expression matches use
+`exact_mutation_reversal`; formatting differences use
+`ast_expression_restoration` after AST location and mutation checks. The
+replacement must be the recorded pre-mutation expression and the resulting
+Python file must parse in a separate candidate workspace.
+
+Candidate records include the snapshot commit, relative target path, source
+hashes, expressions, strategy, diagnosis evidence references, confidence,
+unified diff, syntax-validation status, and review state. A unique
+diagnosis/snapshot/strategy constraint makes generation idempotent. Candidate
+review transitions from `pending` to `reviewed` or `rejected` and cannot be
+reversed. List endpoints support `page` and `page_size`; the candidate detail
+response omits patch content, which is available from the dedicated diff
+endpoint. File hashes use the same UTF-8 universal-newline-normalized content
+as the existing mutation engine; the commit hash identifies the exact snapshot.
+
+Send `{}` to generate candidates for every diagnosis in an analysis, or
+provide an optional report-ID filter:
+
+```json
+{
+  "failure_report_ids": ["<failure-report-uuid>"]
+}
+```
+
+Example generated diff:
+
+```diff
+--- a/src/math_ops.py
++++ b/src/math_ops.py
+@@ -8,1 +8,1 @@
+-    return left + right
++    return left * right
+```
+
+`validation_status: "syntax_valid"` means only that the generated file parses.
+It does not mean tests passed or that the repair is correct. Candidate
+evaluation, application, and ForgeFit integration are deferred to Milestone
+08. Faultline never writes generated changes to the connected repository.
+
+---
+
 ## Verification & Testing
 
 Run unit and integration tests using Pytest:
@@ -441,9 +513,10 @@ ruff format --check .
 
 ## Current Implementation Status
 
-### Implemented (Milestones 01–06)
-- [x] Eight domain SQLAlchemy models with relationships, cascades, and indexes:
-  - `Project`, `RepositoryConnection`, `CodeSnapshot`, `AnalysisRun`, `BaselineExecution`, `MutationRecord`, `ExecutionResult`, `FailureReport`
+### Implemented (Milestones 01–07)
+- [x] Nine domain SQLAlchemy models with relationships, cascades, and indexes:
+  - `Project`, `RepositoryConnection`, `CodeSnapshot`, `AnalysisRun`, `BaselineExecution`, `MutationRecord`, `ExecutionResult`, `FailureReport`, `RepairCandidate`
+- [x] Persisted repair candidates with migration `0004_repair_candidates`, uniqueness constraints, source hashes, patch content, syntax-validation state, and review lifecycle.
 - [x] Full Pydantic v2 schemas for all domain entities, creation inputs, detailed responses, and paginated wrappers.
 - [x] Decoupled Repository and Service layers for Projects, Analyses, Repositories, Snapshots, and Mutations.
 - [x] FastAPI application entry point (`backend/app/main.py`) with lifespan management, CORS, and centralized exception handling.
@@ -474,6 +547,8 @@ ruff format --check .
 - [x] Baseline-to-mutant diagnosis for introduced, pre-existing, changed, passed-both, timeout, infrastructure, execution, and invalid-mutation outcomes.
 - [x] Evidence-backed `FailureReport` fields and relationships, deterministic confidence scoring, idempotent persistence, and migration `0003_failure_diagnosis`.
 - [x] Versioned diagnosis, paginated report-list, and report-detail API endpoints.
+- [x] Deterministic isolated repair patch generation from eligible diagnosis evidence and AST mutation metadata.
+- [x] Repair candidate generation, paginated retrieval, diff retrieval, and review API endpoints.
 - [x] Pytest suite covering application startup, CRUD, ingestion and mutation behavior, sandbox policy/lifecycle, persistence, classifications, scoring, and execution APIs.
 - [x] Ruff linting and style configuration.
 
@@ -484,10 +559,12 @@ ruff format --check .
 - Docker integration could not be smoke-tested in this environment because Docker Desktop is unavailable. The execution tests mock Docker/subprocess boundaries.
 - The default pytest quiet and unittest discovery commands do not emit passing test identifiers. In those cases diagnosis can compare run-level success but cannot name every test that passed in both runs.
 - Diagnosis depends on captured output; truncated or malformed output may yield a report with missing test or exception details.
-- Diagnosis is deterministic and evidence-based but does not prove causation. It provides remediation guidance only and does not generate/apply patches or use an LLM.
-- Execution and diagnosis currently use synchronous API requests.
+- Diagnosis is deterministic and evidence-based but does not prove causation. It provides remediation guidance and does not generate patches itself or use an LLM.
+- Repair candidates are mutation reversals, not confirmed fixes. Syntax validation does not establish behavioral correctness; patch execution/evaluation and ForgeFit integration are deferred to Milestone 08.
+- Repair generation currently supports Python expression mutations with recorded AST locations and exact source hashes. Unsupported diagnoses, mutation types, or ambiguous/missing source evidence are skipped.
+- Execution, diagnosis, and repair generation currently use synchronous API requests.
 
 ### Planned (Upcoming Milestones)
-- [ ] Automated code repair and patch evaluation.
+- [ ] Independent repair candidate evaluation and ForgeFit integration (Milestone 08).
 - [ ] Optional LLM-assisted diagnosis or remediation.
 - [ ] Frontend user interface (pending design system and global styling specifications).
