@@ -63,24 +63,16 @@ class RepositoryService:
         connections = self.repo.get_by_project(db, project_id)
         return [RepositoryConnectionResponse.model_validate(c) for c in connections]
 
-    def get_repository(
-        self, db: Session, repository_id: uuid.UUID
-    ) -> RepositoryConnectionResponse:
+    def get_repository(self, db: Session, repository_id: uuid.UUID) -> RepositoryConnectionResponse:
         conn = self.repo.get(db, repository_id)
         if not conn:
-            raise NotFoundException(
-                resource="RepositoryConnection", identifier=repository_id
-            )
+            raise NotFoundException(resource="RepositoryConnection", identifier=repository_id)
         return RepositoryConnectionResponse.model_validate(conn)
 
-    def get_repository_model(
-        self, db: Session, repository_id: uuid.UUID
-    ) -> RepositoryConnection:
+    def get_repository_model(self, db: Session, repository_id: uuid.UUID) -> RepositoryConnection:
         conn = self.repo.get(db, repository_id)
         if not conn:
-            raise NotFoundException(
-                resource="RepositoryConnection", identifier=repository_id
-            )
+            raise NotFoundException(resource="RepositoryConnection", identifier=repository_id)
         return conn
 
 

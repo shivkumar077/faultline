@@ -227,6 +227,12 @@ Interactive OpenAPI documentation is automatically served:
 | `POST` | `/api/v1/projects` | Register a new project (auto-slug or custom) |
 | `GET` | `/api/v1/projects/{project_id}` | Retrieve project details with relationship counts |
 | `DELETE` | `/api/v1/projects/{project_id}` | Delete a project and cascade its data |
+| `POST` | `/api/v1/projects/{project_id}/repositories` | Register a public GitHub repository connection |
+| `GET` | `/api/v1/projects/{project_id}/repositories` | List repository connections for a project |
+| `GET` | `/api/v1/repositories/{repository_id}` | Retrieve repository connection details |
+| `POST` | `/api/v1/repositories/{repository_id}/sync` | Ingest repository, capture source inventory snapshot |
+| `GET` | `/api/v1/repositories/{repository_id}/snapshots` | List source snapshots for a repository connection |
+| `GET` | `/api/v1/snapshots/{snapshot_id}` | Retrieve source inventory and snapshot metadata |
 | `GET` | `/api/v1/analyses` | Paginated list of analysis runs (filters: `project_id`, `status`) |
 | `GET` | `/api/v1/analyses/{analysis_id}` | Retrieve analysis details with execution & report counts |
 
@@ -251,22 +257,26 @@ ruff format --check backend
 
 ## Current Implementation Status
 
-### Implemented (Milestone 01 & 02)
+### Implemented (Milestones 01, 02 & 03)
 - [x] Eight domain SQLAlchemy models with relationships, cascades, and indexes:
   - `Project`, `RepositoryConnection`, `CodeSnapshot`, `AnalysisRun`, `BaselineExecution`, `MutationRecord`, `ExecutionResult`, `FailureReport`
 - [x] Full Pydantic v2 schemas for all domain entities, creation inputs, detailed responses, and paginated wrappers.
-- [x] Decoupled Repository and Service layers for Projects and Analyses.
+- [x] Decoupled Repository and Service layers for Projects, Analyses, Repositories, and Snapshots.
 - [x] FastAPI application entry point (`backend/app/main.py`) with lifespan management, CORS, and centralized exception handling.
 - [x] Root and versioned health endpoints (`/health` and `/api/v1/health`).
 - [x] Alembic migration configuration and initial migration (`0001_initial_schema`) covering all eight tables.
 - [x] PostgreSQL connection string auto-normalization (`postgresql://` to `postgresql+psycopg2://`).
 - [x] Production Dockerfile with multi-stage build, health check, and Alembic support.
 - [x] Multi-service `docker-compose.yml` with PostgreSQL 16, health checks, and volume mounts.
-- [x] Pytest suite covering application startup, health endpoints, project CRUD, duplicate slug conflicts, and analysis queries with SQLite in-memory isolation.
+- [x] Public GitHub repository registration with strict URL normalization, credential rejection, and duplicate prevention.
+- [x] Safe shallow Git cloning using subprocess without shell, timeout limits, and isolated temporary directory lifecycle.
+- [x] Source inventory inspection with language distribution, SHA-256 hashing, directory pruning, binary skipping, and symlink protection.
+- [x] Source snapshot persistence and deduplication on identical commit hashes.
+- [x] Repository connection and snapshot API endpoints (`/projects/{id}/repositories`, `/repositories/{id}`, `/repositories/{id}/sync`, `/repositories/{id}/snapshots`, `/snapshots/{id}`).
+- [x] Pytest suite covering application startup, health endpoints, project CRUD, duplicate slug conflicts, ingestion security, and snapshot workflows.
 - [x] Ruff linting and style configuration.
 
 ### Planned (Upcoming Milestones)
-- [ ] Repository ingestion engine (Git cloning, branch checkout, AST code indexing).
 - [ ] Code-level mutation injection engine (AST-based syntax-valid mutations).
 - [ ] Isolated test sandbox execution runner (containerized baseline and mutation runs).
 - [ ] AI-driven root cause diagnostic engine and remediation patch generator.

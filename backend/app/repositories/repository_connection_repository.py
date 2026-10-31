@@ -21,9 +21,7 @@ class RepositoryConnectionRepository(BaseRepository[RepositoryConnection]):
         )
         return db.scalars(stmt).first()
 
-    def get_by_project(
-        self, db: Session, project_id: uuid.UUID
-    ) -> Sequence[RepositoryConnection]:
+    def get_by_project(self, db: Session, project_id: uuid.UUID) -> Sequence[RepositoryConnection]:
         stmt = (
             select(RepositoryConnection)
             .where(RepositoryConnection.project_id == project_id)
