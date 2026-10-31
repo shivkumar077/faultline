@@ -4,6 +4,13 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class RepositoryRegistrationRequest(BaseModel):
+    repository_url: str = Field(
+        ..., max_length=512, description="Public GitHub repository HTTPS URL"
+    )
+    branch: str = Field(default="main", max_length=255, description="Target branch to inspect")
+
+
 class RepositoryConnectionBase(BaseModel):
     provider: str = Field(default="github", max_length=50)
     repository_url: str = Field(..., max_length=512)
