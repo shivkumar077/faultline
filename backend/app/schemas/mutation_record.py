@@ -4,6 +4,13 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class GenerateMutationsRequest(BaseModel):
+    seed: int = Field(default=42, description="Deterministic random seed for mutation selection")
+    max_mutations: int = Field(
+        default=100, ge=1, le=500, description="Maximum candidate mutations to generate"
+    )
+
+
 class MutationRecordBase(BaseModel):
     mutation_type: str = Field(..., max_length=100)
     target_file: str = Field(..., max_length=1024)
