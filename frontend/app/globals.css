@@ -1,0 +1,218 @@
+/* =============================================================================
+   SYNTACTIQ EDITORIAL DESIGN SYSTEM
+   Stark Scandinavian Light-Mode Palette | Dual-Font Typography System
+   Can be dropped into any Next.js, React, Vite, or Tailwind CSS project.
+   ============================================================================= */
+
+/* -----------------------------------------------------------------------------
+   1. Google Fonts Embed (Hedvig Letters Serif & Hedvig Letters Sans)
+   ----------------------------------------------------------------------------- */
+@import url('https://fonts.googleapis.com/css2?family=Hedvig+Letters+Sans&family=Hedvig+Letters+Serif:opsz@12..24&display=swap');
+
+/* Tailwind CSS v4 Theme Registration */
+@theme {
+  --font-serif: 'Hedvig Letters Serif', Georgia, Cambria, 'Times New Roman', Times, serif;
+  --font-sans: 'Hedvig Letters Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'Hedvig Letters Sans', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+/* -----------------------------------------------------------------------------
+   2. Design Tokens & CSS Custom Properties
+   ----------------------------------------------------------------------------- */
+:root {
+  /* Typography Variables */
+  --font-serif: 'Hedvig Letters Serif', Georgia, Cambria, 'Times New Roman', Times, serif;
+  --font-sans: 'Hedvig Letters Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'Hedvig Letters Sans', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  /* Editorial Stark White-and-Black Light-Mode Palette */
+  --background: #ffffff;
+  --foreground: #09090b;
+
+  /* Surfaces & Layers */
+  --surface-base: #ffffff;
+  --surface-subtle: #fafafa;      /* zinc-50 */
+  --surface-muted: #f4f4f5;       /* zinc-100 */
+  --surface-inverted: #18181b;    /* zinc-900 */
+  --surface-contrast: #09090b;    /* zinc-950 */
+
+  /* Text & Foreground Hierarchy */
+  --text-primary: #18181b;        /* zinc-900 (High contrast headers & labels) */
+  --text-secondary: #3f3f46;      /* zinc-700 (Body text & prominent copy) */
+  --text-muted: #71717a;          /* zinc-500 (Captions, subheaders, indicators) */
+  --text-subtle: #a1a1aa;         /* zinc-400 (Dividers, placeholders, disabled) */
+  --text-inverted: #ffffff;       /* Pure white on inverted surfaces */
+
+  /* Crisp Editorial Borders */
+  --border-default: #e4e4e7;      /* zinc-200 (Default subtle card/table borders) */
+  --border-strong: #d4d4d8;       /* zinc-300 (Hover states & emphasized borders) */
+  --border-subtle: #f4f4f5;       /* zinc-100 (Internal card dividers) */
+  --border-dark: #27272a;         /* zinc-800 (Dark badge/accent micro-borders) */
+
+  /* Gravitas Guardrails & Status Accents */
+  --status-success: #18181b;      /* High-contrast solid zinc-900 for success */
+  --status-warning: #f59e0b;      /* Amber-500 for non-breaking guardrails */
+  --status-error: #ef4444;        /* Rose-500 for cyclic deadlocks */
+  --status-info: #09090b;         /* Zinc-950 for agent action notifications */
+
+  /* Spacing & Radii Rules */
+  --radius-sm: 6px;               /* Buttons, micro badges */
+  --radius-md: 8px;               /* Form controls, action buttons */
+  --radius-lg: 12px;              /* Standard cards, popovers */
+  --radius-xl: 16px;              /* Graph nodes, large modals */
+  --radius-full: 9999px;          /* Pills, tags, status dots */
+
+  /* Editorial Box-Shadows */
+  --shadow-2xs: 0 1px 2px 0 rgba(0, 0, 0, 0.03);
+  --shadow-xs: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px -1px rgba(0, 0, 0, 0.05);
+  --shadow-card: 0 4px 6px -1px rgba(0, 0, 0, 0.03), 0 2px 4px -2px rgba(0, 0, 0, 0.03);
+  --shadow-modal: 0 20px 25px -5px rgba(0, 0, 0, 0.07), 0 8px 10px -6px rgba(0, 0, 0, 0.07);
+}
+
+/* -----------------------------------------------------------------------------
+   3. Global Base & Element Resets
+   ----------------------------------------------------------------------------- */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body {
+  color: var(--foreground);
+  background-color: var(--background);
+  font-family: var(--font-sans);
+  min-height: 100vh;
+  margin: 0;
+  padding: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Editorial Typography Rules */
+h1, h2, h3, h4, .font-serif {
+  font-family: var(--font-serif) !important;
+  letter-spacing: -0.02em;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+
+p, span, div, a, li, input, select, textarea, button, .font-sans {
+  font-family: var(--font-sans) !important;
+}
+
+/* Strict Mono Override: Code and tokens inherit clean Hedvig Sans */
+code, pre, kbd, samp, .font-mono {
+  font-family: var(--font-sans) !important;
+}
+
+/* -----------------------------------------------------------------------------
+   4. Minimalist Scandinavian Scrollbars
+   ----------------------------------------------------------------------------- */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-default);
+  border-radius: var(--radius-full);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-strong);
+}
+
+/* -----------------------------------------------------------------------------
+   5. Reusable Editorial Utility Classes
+   ----------------------------------------------------------------------------- */
+/* Canvas dot matrix grid for graph viewports */
+.editorial-canvas-bg {
+  background-color: var(--background);
+  background-image: radial-gradient(var(--border-default) 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+
+/* Editorial Card */
+.editorial-card {
+  background-color: var(--surface-base);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-2xs);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.editorial-card:hover {
+  border-color: var(--border-strong);
+}
+
+/* Editorial Primary Button */
+.editorial-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  padding: 0.5rem 1rem;
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-inverted);
+  background-color: var(--surface-inverted);
+  border: 1px solid var(--surface-inverted);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-2xs);
+  cursor: pointer;
+  transition: background-color 0.15s ease, transform 0.05s ease;
+}
+
+.editorial-btn-primary:hover {
+  background-color: #000000;
+  border-color: #000000;
+}
+
+.editorial-btn-primary:active {
+  transform: scale(0.99);
+}
+
+/* Editorial Secondary Button */
+.editorial-btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  padding: 0.5rem 0.875rem;
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background-color: var(--surface-base);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-2xs);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.editorial-btn-secondary:hover {
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+  background-color: var(--surface-subtle);
+}
+
+/* Editorial Status Badge */
+.editorial-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.125rem 0.5rem;
+  font-family: var(--font-sans);
+  font-size: 0.625rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-radius: var(--radius-full);
+  background-color: var(--surface-muted);
+  color: var(--text-primary);
+  border: 1px solid var(--border-default);
+}
+

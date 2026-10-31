@@ -58,6 +58,7 @@ The backend follows a layered, decoupled service-repository architecture designe
 - **Testing**: Pytest, FastAPI TestClient, in-memory SQLite with static connection pooling
 - **Code Quality**: Ruff (linter & code formatter)
 - **Containerization**: Docker (multi-stage Python 3.12 slim), Docker Compose
+- **Frontend**: Next.js App Router, React, TypeScript, Tailwind CSS v4 theme processing, ESLint, and Lucide icons
 
 ---
 
@@ -73,6 +74,12 @@ faultline/
 ├── pyproject.toml                   # Project metadata, dependencies, and tool settings
 ├── alembic.ini                      # Alembic migration configuration
 ├── README.md                        # Technical documentation
+├── frontend/                        # Next.js application and typed API client
+│   ├── app/                          # App Router pages and copied global stylesheet
+│   ├── components/                   # Responsive shell and shared UI
+│   ├── lib/                          # API client, types, and formatters
+│   ├── .env.example                  # Frontend API base URL
+│   └── package.json                  # Frontend scripts and dependencies
 └── backend/
     ├── migrations/                  # Database migration management
     │   ├── env.py                   # Alembic environment runner
@@ -81,7 +88,8 @@ faultline/
     │           ├── 0001_initial_schema.py
     │           ├── 0002_execution_engine.py
     │           ├── 0003_failure_diagnosis.py
-    │           └── 0004_repair_candidates.py
+    │           ├── 0004_repair_candidates.py
+    │           └── 0005_repair_evaluations.py
     ├── app/
     │   ├── main.py                  # FastAPI application entry point
     │   ├── core/                    # Application settings and custom exceptions
@@ -149,8 +157,39 @@ faultline/
 
 ### Prerequisites
 - Python 3.12+
+- Node.js 20.9+ and npm (frontend)
 - PostgreSQL 16 (optional for local SQLite development, required for production)
 - Docker & Docker Compose (optional for containerized runtime)
+
+### Frontend workspace
+
+The Next.js App Router frontend lives in `frontend/` and consumes the versioned
+FastAPI API directly. It does not provide a second backend or mock production
+data. The backend currently has no authentication; the UI reflects that API
+contract. CORS already permits the local Next.js origin (`http://localhost:3000`).
+
+```powershell
+cd frontend
+npm install
+Copy-Item .env.example .env.local
+npm run dev
+```
+
+Set `NEXT_PUBLIC_API_BASE_URL` to the FastAPI v1 base URL, including `/api/v1`;
+for example, `http://localhost:8000/api/v1`. The default matches the Compose
+backend port. Start the API and database separately from the repository root
+with `docker compose up --build`. Run `npm run build`, `npm run typecheck`, and
+`npm run lint` from `frontend/` before deployment.
+
+The interface supports project creation/deletion, public GitHub repository
+connections and synchronization, snapshot inventory, deterministic mutation
+generation, test execution, diagnosis reports, patch review, and candidate
+evaluation. Execution remains subject to the backend's Docker runner setup.
+ForgeFit scenarios are optional and require server-side ForgeFit configuration
+and authorization for any external target. The backend exposes no consolidated
+activity feed or global search endpoint; the dashboard derives counts from
+available API records, and project/analysis search is scoped to the currently
+loaded page.
 
 ### 1. Clone & Set Up Virtual Environment
 
@@ -632,7 +671,7 @@ ruff format --check .
 
 ## Current Implementation Status
 
-### Implemented (Milestones 01–08)
+### Implemented (Milestones 01–09)
 - [x] Ten domain SQLAlchemy models with relationships, cascades, and indexes:
   - `Project`, `RepositoryConnection`, `CodeSnapshot`, `AnalysisRun`, `BaselineExecution`, `MutationRecord`, `ExecutionResult`, `FailureReport`, `RepairCandidate`, `RepairEvaluation`
 - [x] Persisted repair candidates with migration `0004_repair_candidates`, uniqueness constraints, source hashes, patch content, syntax-validation state, and review lifecycle.
@@ -670,8 +709,12 @@ ruff format --check .
 - [x] Repair candidate generation, paginated retrieval, diff retrieval, and review API endpoints.
 - [x] Persisted repair evaluation history, isolated patch application, hash/AST/diff validation, baseline/mutant/candidate comparison, and reversible migration `0005_repair_evaluations`.
 - [x] Versioned repair evaluation APIs, pagination, timeout/infrastructure classification, and an optional adapter for ForgeFit's existing asynchronous run contract.
+- [x] Responsive Next.js frontend with project/repository/snapshot management, mutation analysis, execution, diagnosis, repair review, and repair evaluation workflows.
+- [x] Typed API client and validated inputs against the existing FastAPI contracts; API connectivity, loading, empty, and error states use live responses rather than mock records.
+- [x] Supplied Syntactiq CSS copied unchanged as the frontend global stylesheet, with responsive components using its palette and typography tokens.
 - [x] Pytest suite covering application startup, CRUD, ingestion and mutation behavior, sandbox policy/lifecycle, persistence, classifications, scoring, and execution APIs.
 - [x] Ruff linting and style configuration.
+- [x] Frontend production build, TypeScript checking, and ESLint.
 
 ### Known Limitations
 - The API host must have Docker CLI and daemon access. Docker socket mounts are not made available to untrusted runner containers.
@@ -684,7 +727,10 @@ ruff format --check .
 - Repair candidates are mutation reversals, not confirmed fixes. Syntax validation and test outcomes are evidence only and do not establish behavioral correctness.
 - Repair generation currently supports Python expression mutations with recorded AST locations and exact source hashes. Unsupported diagnoses, mutation types, or ambiguous/missing source evidence are skipped.
 - Execution, diagnosis, and repair generation currently use synchronous API requests.
+- The frontend exposes no authentication because the API currently requires none. Configure deployment access controls before exposing this API to untrusted users.
+- Dashboard totals require multiple existing API requests because the backend has no aggregate endpoint; large workspaces may load more slowly. Project and analysis search is limited to the currently loaded page because no global search endpoint exists.
+- Frontend pages were not exercised against a live database-backed API in this environment. The local OpenAPI/health contract and frontend rendering/error states were checked; live repository ingestion, Docker test execution, and ForgeFit runs were not.
 
 ### Planned (Upcoming Milestones)
 - [ ] Optional LLM-assisted diagnosis or remediation.
-- [ ] Frontend user interface (pending design system and global styling specifications).
+- [ ] Authentication and authorization, paired with backend API support.
