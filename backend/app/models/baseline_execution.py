@@ -20,6 +20,7 @@ from app.db.base import Base
 if TYPE_CHECKING:
     from app.models.analysis_run import AnalysisRun
     from app.models.code_snapshot import CodeSnapshot
+    from app.models.failure_report import FailureReport
 
 
 class BaselineExecution(Base):
@@ -64,6 +65,9 @@ class BaselineExecution(Base):
     # Relationships
     analysis_run: Mapped["AnalysisRun"] = relationship(
         "AnalysisRun", back_populates="baseline_executions"
+    )
+    failure_reports: Mapped[list["FailureReport"]] = relationship(
+        "FailureReport", back_populates="baseline_execution"
     )
     code_snapshot: Mapped["CodeSnapshot"] = relationship(
         "CodeSnapshot", back_populates="baseline_executions"
