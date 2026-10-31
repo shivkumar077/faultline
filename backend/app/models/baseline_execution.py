@@ -2,7 +2,17 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, Uuid, func
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    Uuid,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -14,6 +24,7 @@ if TYPE_CHECKING:
 
 class BaselineExecution(Base):
     __tablename__ = "baseline_executions"
+    __table_args__ = (UniqueConstraint("analysis_run_id", name="uq_baseline_analysis_run"),)
 
     id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True),
@@ -33,8 +44,16 @@ class BaselineExecution(Base):
         index=True,
     )
     command: Mapped[str] = mapped_column(String(512), nullable=False)
+    command_identifier: Mapped[str] = mapped_column(String(50), default="pytest", nullable=False)
+    framework: Mapped[str] = mapped_column(String(50), default="none", nullable=False)
+    test_files_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     status: Mapped[str] = mapped_column(String(50), default="pending", nullable=False, index=True)
     exit_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    passed_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    failed_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    skipped_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    timed_out: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    infrastructure_error: Mapped[str | None] = mapped_column(String(100), nullable=True)
     stdout: Mapped[str | None] = mapped_column(Text, nullable=True)
     stderr: Mapped[str | None] = mapped_column(Text, nullable=True)
     duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)

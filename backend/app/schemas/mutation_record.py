@@ -15,6 +15,8 @@ class MutationRecordBase(BaseModel):
     mutation_type: str = Field(..., max_length=100)
     target_file: str = Field(..., max_length=1024)
     line_number: int = Field(..., ge=1)
+    col_offset: int | None = Field(default=None, ge=0)
+    source_sha256: str | None = Field(default=None, min_length=64, max_length=64)
     original_code: str
     mutated_code: str
     status: str = Field(default="applied", max_length=50)

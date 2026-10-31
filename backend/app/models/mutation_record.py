@@ -29,6 +29,8 @@ class MutationRecord(Base):
     mutation_type: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     target_file: Mapped[str] = mapped_column(String(1024), nullable=False)
     line_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    col_offset: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
     original_code: Mapped[str] = mapped_column(Text, nullable=False)
     mutated_code: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String(50), default="applied", nullable=False, index=True)
