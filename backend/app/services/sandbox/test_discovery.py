@@ -11,6 +11,7 @@ logger = logging.getLogger("faultline.sandbox.test_discovery")
 class TestDiscoveryResult:
     """Discovered test suite metadata and recommended execution command."""
 
+    __test__ = False
     framework: str  # "pytest" or "unittest"
     test_files: list[str] = field(default_factory=list)
     recommended_command: list[str] = field(default_factory=list)
@@ -21,6 +22,7 @@ class TestDiscoveryResult:
 class TestDiscoveryService:
     """Discovers test suites and execution commands in a workspace."""
 
+    __test__ = False
     PYTEST_CONFIG_FILES = [
         "pytest.ini",
         "pyproject.toml",
