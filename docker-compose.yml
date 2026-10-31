@@ -1,0 +1,50 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: faultline_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-faultline}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-faultline_dev_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-faultline}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-faultline} -d ${POSTGRES_DB:-faultline}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - faultline-network
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: faultline_backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ENVIRONMENT: development
+      DEBUG: "true"
+      DATABASE_URL: postgresql://${POSTGRES_USER:-faultline}:${POSTGRES_PASSWORD:-faultline_dev_secret}@postgres:5432/${POSTGRES_DB:-faultline}
+      HOST: 0.0.0.0
+      PORT: 8000
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app/backend
+    networks:
+      - faultline-network
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  faultline-network:
+    driver: bridge
