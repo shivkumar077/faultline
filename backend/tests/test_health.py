@@ -30,3 +30,15 @@ def test_api_v1_health_endpoint(client: TestClient) -> None:
     data = response.json()
     assert data["status"] == "healthy"
     assert data["service"] == "faultline-api"
+
+
+def test_readiness_endpoint_checks_database_and_reports_runner(client: TestClient) -> None:
+    response = client.get("/health/ready")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["database"] == "available"
+    assert data["execution_runner"] in {"available", "unavailable"}
+    assert data["status"] in {"ready", "degraded"}
+
+    versioned = client.get("/api/v1/health/ready")
+    assert versioned.status_code == 200

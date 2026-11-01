@@ -19,7 +19,7 @@ target_metadata = Base.metadata
 
 def get_url() -> str:
     """Return database URL from application settings."""
-    return settings.DATABASE_URL
+    return settings.DATABASE_URL.get_secret_value()
 
 
 def run_migrations_offline() -> None:

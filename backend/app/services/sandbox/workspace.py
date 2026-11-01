@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from app.core.exceptions import FaultlineException
+from app.core.logging_config import safe_error_log
 
 logger = logging.getLogger("faultline.sandbox.workspace")
 
@@ -28,19 +29,19 @@ class WorkspaceManager:
         if not source_dir.is_dir():
             raise FaultlineException(
                 status_code=400,
-                detail=f"Source directory for workspace copy does not exist: {source_dir}",
+                detail="Source directory for workspace copy does not exist.",
                 error_code="INVALID_SOURCE_WORKSPACE",
             )
         target_dir = self.create_workspace()
         try:
-            # Copy all files and directories preserving contents
-            shutil.copytree(source_dir, target_dir, dirs_exist_ok=True, symlinks=False)
+            shutil.copytree(source_dir, target_dir, dirs_exist_ok=True, symlinks=True)
             return target_dir
         except Exception as exc:
             self.cleanup_workspace(target_dir)
+            safe_error_log(logger, "isolated_workspace_copy_failed", exc)
             raise FaultlineException(
                 status_code=500,
-                detail=f"Failed to clone isolated workspace: {exc}",
+                detail="Failed to create an isolated workspace copy.",
                 error_code="WORKSPACE_CLONE_FAILED",
             ) from exc
 
@@ -50,7 +51,7 @@ class WorkspaceManager:
             try:
                 shutil.rmtree(workspace_path)
             except Exception as exc:
-                logger.error("Workspace cleanup failed (%s)", type(exc).__name__)
+                safe_error_log(logger, "isolated_workspace_cleanup_failed", exc)
                 raise FaultlineException(
                     status_code=500,
                     detail="Isolated workspace cleanup failed.",

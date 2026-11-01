@@ -40,6 +40,7 @@ class DockerRuntime:
 
     def __init__(self, config: SandboxConfig | None = None):
         self.config = config or sandbox_config
+        self._execution_slots = threading.BoundedSemaphore(self.config.max_concurrent_runs)
 
     def check_availability(self) -> bool:
         """Verify Docker daemon is reachable. Returns False if unavailable."""
@@ -70,6 +71,28 @@ class DockerRuntime:
             )
 
     def run_in_container(
+        self,
+        workspace_path: Path,
+        command: list[str],
+        *,
+        timeout_seconds: int | None = None,
+    ) -> ContainerResult:
+        if not self._execution_slots.acquire(timeout=self.config.queue_timeout_seconds):
+            raise FaultlineException(
+                status_code=503,
+                detail="All isolated execution slots are currently occupied.",
+                error_code="SANDBOX_BUSY",
+            )
+        try:
+            return self._run_in_container(
+                workspace_path,
+                command,
+                timeout_seconds=timeout_seconds,
+            )
+        finally:
+            self._execution_slots.release()
+
+    def _run_in_container(
         self,
         workspace_path: Path,
         command: list[str],

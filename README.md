@@ -164,9 +164,9 @@ faultline/
 ### Frontend workspace
 
 The Next.js App Router frontend lives in `frontend/` and consumes the versioned
-FastAPI API directly. It does not provide a second backend or mock production
-data. The backend currently has no authentication; the UI reflects that API
-contract. CORS already permits the local Next.js origin (`http://localhost:3000`).
+FastAPI API. It does not provide a second backend or mock production data. Local
+development uses the API directly; the production image uses a same-origin
+server-side proxy and does not expose the backend token to browser JavaScript.
 
 ```powershell
 cd frontend
@@ -176,9 +176,9 @@ npm run dev
 ```
 
 Set `NEXT_PUBLIC_API_BASE_URL` to the FastAPI v1 base URL, including `/api/v1`;
-for example, `http://localhost:8000/api/v1`. The default matches the Compose
-backend port. Start the API and database separately from the repository root
-with `docker compose up --build`. Run `npm run build`, `npm run typecheck`, and
+for example, `http://localhost:8000/api/v1`. The default matches the local
+Compose backend port. Start the API and database from the repository root with
+`docker compose up --build`, then run `npm run build`, `npm run typecheck`, and
 `npm run lint` from `frontend/` before deployment.
 
 The interface supports project creation/deletion, public GitHub repository
@@ -219,10 +219,17 @@ cp .env.example .env
 
 Key environment parameters:
 - `DATABASE_URL`: Connection string (e.g., `postgresql://faultline:faultline_dev_secret@localhost:5432/faultline`)
-- `ENVIRONMENT`: `development` | `staging` | `production`
+- `ENVIRONMENT`: `development` | `test` | `production`
 - `DEBUG`: `true` | `false`
 - `API_V1_PREFIX`: API route prefix (`/api/v1`)
-- `CORS_ORIGINS`: Allowed origins list as JSON array or comma-delimited strings
+- `CORS_ORIGINS`: Allowed origins list; production origins must be explicit HTTPS origins.
+- `TRUSTED_HOSTS`: Host-header allowlist.
+- `FORGEFIT_ALLOW_EXTERNAL_TARGETS`: Production opt-in for authorized external ForgeFit targets.
+
+On Windows PowerShell, copy the template with `Copy-Item .env.example .env`.
+See [Production Deployment](docs/production-deployment.md) for production
+settings, secret-file provisioning, deployment steps, security boundaries, and
+operational checks.
 
 ---
 
@@ -279,7 +286,9 @@ Interactive OpenAPI documentation is automatically served:
 |---|---|---|
 | `GET` | `/` | Service root metadata and health link |
 | `GET` | `/health` | Container and load-balancer health check |
+| `GET` | `/health/ready` | Database readiness and execution-runner availability |
 | `GET` | `/api/v1/health` | Versioned API health check |
+| `GET` | `/api/v1/health/ready` | Versioned database and execution-runner readiness |
 | `GET` | `/api/v1/projects` | Paginated listing of registered projects |
 | `POST` | `/api/v1/projects` | Register a new project (auto-slug or custom) |
 | `GET` | `/api/v1/projects/{project_id}` | Retrieve project details with relationship counts |
@@ -327,7 +336,9 @@ through your deployment's secret mechanism). Do not expose an unauthenticated
 Docker TCP endpoint. For safety, the runner receives no host environment
 variables, secrets, or arbitrary mounts. Do not mount the Docker socket into an
 untrusted runner container. The API runtime uses a uniquely named container per
-execution and removes it after completion, including timeout paths.
+execution and removes it after completion, including timeout paths. Production
+Compose additionally requires the workspace directory to be visible at the same
+absolute path to the API container and Docker daemon.
 
 The runner container uses a non-root UID, disabled networking, a read-only
 container root and source mount, dropped Linux capabilities,
@@ -671,7 +682,7 @@ ruff format --check .
 
 ## Current Implementation Status
 
-### Implemented (Milestones 01–09)
+### Implemented (Milestones 01–10)
 - [x] Ten domain SQLAlchemy models with relationships, cascades, and indexes:
   - `Project`, `RepositoryConnection`, `CodeSnapshot`, `AnalysisRun`, `BaselineExecution`, `MutationRecord`, `ExecutionResult`, `FailureReport`, `RepairCandidate`, `RepairEvaluation`
 - [x] Persisted repair candidates with migration `0004_repair_candidates`, uniqueness constraints, source hashes, patch content, syntax-validation state, and review lifecycle.
@@ -715,6 +726,10 @@ ruff format --check .
 - [x] Pytest suite covering application startup, CRUD, ingestion and mutation behavior, sandbox policy/lifecycle, persistence, classifications, scoring, and execution APIs.
 - [x] Ruff linting and style configuration.
 - [x] Frontend production build, TypeScript checking, and ESLint.
+- [x] Production-only bearer-token API access, bounded request bodies, request IDs, structured JSON logs, trusted-host enforcement, and process-local rate limits.
+- [x] Database connection/query timeouts and explicit readiness checks for PostgreSQL and the isolated execution runner.
+- [x] Safer Git subprocess configuration, branch/commit validation, ForgeFit URL and external-target checks, and symlink-safe workspace copying.
+- [x] Production Compose profile, non-root images, server-side frontend API proxy, internal-only PostgreSQL, container resource limits, and file-based secret support.
 
 ### Known Limitations
 - The API host must have Docker CLI and daemon access. Docker socket mounts are not made available to untrusted runner containers.
@@ -727,10 +742,15 @@ ruff format --check .
 - Repair candidates are mutation reversals, not confirmed fixes. Syntax validation and test outcomes are evidence only and do not establish behavioral correctness.
 - Repair generation currently supports Python expression mutations with recorded AST locations and exact source hashes. Unsupported diagnoses, mutation types, or ambiguous/missing source evidence are skipped.
 - Execution, diagnosis, and repair generation currently use synchronous API requests.
-- The frontend exposes no authentication because the API currently requires none. Configure deployment access controls before exposing this API to untrusted users.
+- Production API authentication uses a shared service bearer token, not per-user identity, tenant isolation, or project authorization. The production frontend therefore must sit behind an ingress that provides user authentication and TLS; the included Compose profile binds it only to localhost.
+- Rate limits are process-local and API requests proxied by the frontend share the frontend container's source address. Enforce per-user/IP limits at the ingress or API gateway for multi-user deployments.
+- Production Compose file-based secrets are mounted into containers but are not an encrypted secret manager. Protect host files and backups, or use an orchestrator's managed secrets.
+- External ForgeFit target URLs are disabled by default in production. Enabling them requires request acknowledgement and public-address DNS checks, but DNS checks cannot eliminate rebinding/redirect risks; enforce destination restrictions at ForgeFit and the network egress boundary.
+- The production Compose file requires a mutually authenticated TLS Docker daemon endpoint and a daemon-visible shared workspace. Docker image builds, daemon-backed execution, and container health checks must be verified in the target deployment environment.
+- Database migrations are intentionally not run automatically during startup. Apply migrations as an explicit single deployment step before serving traffic; production downgrades can remove data and require a verified backup and rollback plan.
 - Dashboard totals require multiple existing API requests because the backend has no aggregate endpoint; large workspaces may load more slowly. Project and analysis search is limited to the currently loaded page because no global search endpoint exists.
 - Frontend pages were not exercised against a live database-backed API in this environment. The local OpenAPI/health contract and frontend rendering/error states were checked; live repository ingestion, Docker test execution, and ForgeFit runs were not.
 
 ### Planned (Upcoming Milestones)
 - [ ] Optional LLM-assisted diagnosis or remediation.
-- [ ] Authentication and authorization, paired with backend API support.
+- [ ] Per-user authentication, authorization, and tenant isolation for API resources.

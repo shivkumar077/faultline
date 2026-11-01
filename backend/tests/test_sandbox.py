@@ -24,6 +24,7 @@ def test_sandbox_config_defaults():
     assert "1000:1000" in flags
     assert "--memory" in flags
     assert "512m" in flags
+    assert "--memory-swap" in flags
     assert "--cpus" in flags
     assert "1.0" in flags
     assert "--pids-limit" in flags
@@ -118,6 +119,8 @@ def test_docker_runtime_build_docker_command(tmp_path: Path):
     assert "--read-only" in cmd
     assert "--cap-drop=ALL" in cmd
     assert "--security-opt=no-new-privileges" in cmd
+    assert "--init" in cmd
+    assert "--memory-swap" in cmd
     assert "-v" in cmd
     assert f"{tmp_path.resolve()}:/workspace:ro" in cmd
     assert "-w" in cmd
@@ -127,6 +130,28 @@ def test_docker_runtime_build_docker_command(tmp_path: Path):
     assert "--privileged" not in cmd
     assert not any("docker.sock" in item for item in cmd)
     assert "--rm" not in cmd
+
+
+def test_docker_runtime_bounds_concurrent_sandbox_runs(tmp_path: Path):
+    runtime = DockerRuntime(SandboxConfig(max_concurrent_runs=1, queue_timeout_seconds=1))
+    assert runtime._execution_slots.acquire(blocking=False)
+    try:
+        with pytest.raises(FaultlineException) as exc_info:
+            runtime.run_in_container(
+                tmp_path,
+                [
+                    "python",
+                    "-m",
+                    "pytest",
+                    "-q",
+                    "--tb=short",
+                    "-p",
+                    "no:cacheprovider",
+                ],
+            )
+        assert exc_info.value.error_code == "SANDBOX_BUSY"
+    finally:
+        runtime._execution_slots.release()
 
 
 class FakeProcess:
@@ -257,6 +282,27 @@ def test_workspace_manager_lifecycle(tmp_path: Path):
 
     # Cleaned up after context manager
     assert not ws.exists()
+
+
+def test_workspace_copy_preserves_external_symlinks_without_following_them(tmp_path: Path):
+    source = tmp_path / "source"
+    source.mkdir()
+    outside_file = tmp_path / "outside.txt"
+    outside_file.write_text("host-only content", encoding="utf-8")
+    link = source / "external-link"
+    try:
+        link.symlink_to(outside_file)
+    except OSError:
+        pytest.skip("Symlink creation is not permitted by this Windows environment.")
+
+    manager = WorkspaceManager()
+    workspace = manager.clone_workspace(source)
+    try:
+        copied_link = workspace / "external-link"
+        assert copied_link.is_symlink()
+        assert copied_link.resolve() == outside_file.resolve()
+    finally:
+        manager.cleanup_workspace(workspace)
 
 
 def test_workspace_manager_cleans_up_after_execution_failure(tmp_path: Path):

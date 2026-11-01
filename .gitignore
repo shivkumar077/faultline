@@ -60,6 +60,7 @@ cover/
 *.log
 local_settings.py
 db.sqlite3
+*.db
 db.sqlite3-journal
 
 # Flask stuff:
@@ -152,6 +153,11 @@ activemq-data/
 # Environments
 .env
 .envrc
+.env.*
+!.env.example
+.env.production
+production.env
+secrets/
 .venv
 env/
 venv/

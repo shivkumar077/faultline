@@ -73,6 +73,33 @@ def test_forgefit_adapter_fails_closed_for_unauthorized_external_target(monkeypa
     assert calls == []
 
 
+def test_forgefit_adapter_requires_production_opt_in_for_external_target(monkeypatch):
+    monkeypatch.setattr(settings, "ENVIRONMENT", "production")
+    monkeypatch.setattr(settings, "FORGEFIT_ALLOW_EXTERNAL_TARGETS", False)
+    monkeypatch.setattr(settings, "FORGEFIT_BASE_URL", "https://forgefit.example")
+    adapter = ForgeFitAdapter()
+    calls = []
+    monkeypatch.setattr(
+        adapter,
+        "_request_json",
+        lambda *args, **kwargs: calls.append(args),
+    )
+
+    outcome = adapter.run_scenario(
+        ForgeFitScenarioRequest(
+            target_url="https://example.com/health",
+            allow_external=True,
+            authorized_acknowledgement=True,
+        ),
+        candidate_id=uuid4(),
+        evaluation_id=uuid4(),
+    )
+
+    assert outcome.status == "error"
+    assert outcome.error_code == "EXTERNAL_TARGET_NOT_AUTHORIZED"
+    assert calls == []
+
+
 def test_forgefit_adapter_reports_missing_optional_configuration(monkeypatch):
     monkeypatch.setattr(settings, "FORGEFIT_BASE_URL", None)
     outcome = ForgeFitAdapter().run_scenario(
@@ -103,4 +130,35 @@ def test_forgefit_adapter_requires_tls_for_remote_base_url(monkeypatch):
 
     assert outcome.status == "error"
     assert outcome.error_code == "INSECURE_BASE_URL"
+    assert calls == []
+
+
+def test_forgefit_adapter_rejects_external_hostnames_resolving_to_private_addresses(monkeypatch):
+    monkeypatch.setattr(settings, "FORGEFIT_BASE_URL", "https://forgefit.example")
+    adapter = ForgeFitAdapter()
+    calls = []
+    monkeypatch.setattr(
+        "app.services.forgefit_adapter.socket.getaddrinfo",
+        lambda *args, **kwargs: [
+            (2, 1, 6, "", ("10.0.0.7", 443)),
+        ],
+    )
+    monkeypatch.setattr(
+        adapter,
+        "_request_json",
+        lambda *args, **kwargs: calls.append(args),
+    )
+
+    outcome = adapter.run_scenario(
+        ForgeFitScenarioRequest(
+            target_url="https://rebound.example/health",
+            allow_external=True,
+            authorized_acknowledgement=True,
+        ),
+        candidate_id=uuid4(),
+        evaluation_id=uuid4(),
+    )
+
+    assert outcome.status == "error"
+    assert outcome.error_code == "TARGET_ADDRESS_NOT_PUBLIC"
     assert calls == []

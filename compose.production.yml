@@ -1,0 +1,207 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - faultline-internal
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    mem_limit: 1g
+    cpus: 2.0
+    pids_limit: 256
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ENVIRONMENT: production
+      DEBUG: "false"
+      PRIVATE_DEPLOYMENT: "true"
+      DATABASE_URL_FILE: /run/secrets/database_url
+      API_AUTH_TOKEN_FILE: /run/secrets/api_token
+      CORS_ORIGINS: "[]"
+      TRUSTED_HOSTS: ${FAULTLINE_TRUSTED_HOSTS:?Set an explicit JSON trusted-host list}
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-10}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-20}
+      DB_POOL_TIMEOUT: ${DB_POOL_TIMEOUT:-30}
+      DB_CONNECT_TIMEOUT_SECONDS: ${DB_CONNECT_TIMEOUT_SECONDS:-5}
+      DB_STATEMENT_TIMEOUT_MS: ${DB_STATEMENT_TIMEOUT_MS:-30000}
+      DB_LOCK_TIMEOUT_MS: ${DB_LOCK_TIMEOUT_MS:-5000}
+      DB_POOL_RECYCLE_SECONDS: ${DB_POOL_RECYCLE_SECONDS:-1800}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      MAX_REQUEST_BODY_BYTES: ${MAX_REQUEST_BODY_BYTES:-1048576}
+      RATE_LIMIT_REQUESTS_PER_MINUTE: ${RATE_LIMIT_REQUESTS_PER_MINUTE:-120}
+      EXPENSIVE_RATE_LIMIT_REQUESTS_PER_MINUTE: ${EXPENSIVE_RATE_LIMIT_REQUESTS_PER_MINUTE:-10}
+      RATE_LIMIT_WINDOW_SECONDS: ${RATE_LIMIT_WINDOW_SECONDS:-60}
+      HOST: 0.0.0.0
+      PORT: 8000
+      DOCKER_HOST: ${DOCKER_HOST:?Set a secured Docker daemon TLS endpoint}
+      DOCKER_TLS_VERIFY: "1"
+      DOCKER_CERT_PATH: /run/secrets
+      TMPDIR: ${FAULTLINE_WORKSPACE_ROOT:?Set a shared absolute workspace directory}
+      FORGEFIT_BASE_URL: ${FORGEFIT_BASE_URL:-}
+      FORGEFIT_ALLOW_EXTERNAL_TARGETS: ${FORGEFIT_ALLOW_EXTERNAL_TARGETS:-false}
+      FORGEFIT_TIMEOUT_SECONDS: ${FORGEFIT_TIMEOUT_SECONDS:-5}
+      FORGEFIT_MAX_WAIT_SECONDS: ${FORGEFIT_MAX_WAIT_SECONDS:-300}
+      FORGEFIT_POLL_INTERVAL_SECONDS: ${FORGEFIT_POLL_INTERVAL_SECONDS:-1}
+    secrets:
+      - api_token
+      - database_url
+      - source: docker_ca
+        target: ca.pem
+      - source: docker_client_cert
+        target: cert.pem
+      - source: docker_client_key
+        target: key.pem
+    volumes:
+      - type: bind
+        source: ${FAULTLINE_WORKSPACE_ROOT:?Set a shared absolute workspace directory}
+        target: ${FAULTLINE_WORKSPACE_ROOT:?Set a shared absolute workspace directory}
+    expose:
+      - "8000"
+    networks:
+      - faultline-internal
+      - faultline-egress
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,noexec,nosuid,nodev
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 2g
+    cpus: 2.0
+    pids_limit: 256
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=15).read()",
+        ]
+      interval: 20s
+      timeout: 20s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE_URL: /api/v1
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      NEXT_TELEMETRY_DISABLED: "1"
+      NEXT_PUBLIC_API_BASE_URL: /api/v1
+      FAULTLINE_API_BASE_URL: http://backend:8000/api/v1
+      FAULTLINE_API_TOKEN_FILE: /run/secrets/api_token
+    secrets:
+      - api_token
+    ports:
+      - "127.0.0.1:${FAULTLINE_WEB_HOST_PORT:-3000}:3000"
+    networks:
+      - faultline-internal
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,noexec,nosuid,nodev
+      - /app/.next/cache:size=128m,nosuid,nodev,uid=1001,gid=1001
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 1g
+    cpus: 1.5
+    pids_limit: 128
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/api/v1/health').then((r) => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))",
+        ]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  runner-image:
+    profiles:
+      - image-build
+    build:
+      context: .
+      dockerfile: docker/runner.Dockerfile
+    image: faultline-runner:py312
+    command: ["python", "--version"]
+    restart: "no"
+    network_mode: none
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  faultline-internal:
+    internal: true
+  faultline-egress:
+    driver: bridge
+
+volumes:
+  postgres_data:
+
+secrets:
+  api_token:
+    file: ${FAULTLINE_API_TOKEN_FILE:?Set a generated API token file}
+  database_url:
+    file: ${FAULTLINE_DATABASE_URL_FILE:?Set a secret PostgreSQL URL file}
+  postgres_password:
+    file: ${POSTGRES_PASSWORD_FILE:?Set a PostgreSQL password secret file}
+  docker_ca:
+    file: ${DOCKER_CA_FILE:?Set the Docker daemon CA certificate file}
+  docker_client_cert:
+    file: ${DOCKER_CLIENT_CERT_FILE:?Set the Docker client certificate file}
+  docker_client_key:
+    file: ${DOCKER_CLIENT_KEY_FILE:?Set the Docker client private key file}

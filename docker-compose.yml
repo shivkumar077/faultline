@@ -1,14 +1,13 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: faultline_postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-faultline}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-faultline_dev_secret}
       POSTGRES_DB: ${POSTGRES_DB:-faultline}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -23,23 +22,33 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: faultline_backend
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
     environment:
       ENVIRONMENT: development
-      DEBUG: "true"
+      DEBUG: "false"
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-faultline}:${POSTGRES_PASSWORD:-faultline_dev_secret}@postgres:5432/${POSTGRES_DB:-faultline}
-      DOCKER_HOST: ${DOCKER_HOST:-}
       HOST: 0.0.0.0
       PORT: 8000
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     volumes:
       - ./backend:/app/backend
-      - ./alembic.ini:/app/alembic.ini
+      - ./alembic.ini:/app/alembic.ini:ro
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=15).read()",
+        ]
+      interval: 20s
+      timeout: 20s
+      retries: 3
+      start_period: 20s
     networks:
       - faultline-network
 

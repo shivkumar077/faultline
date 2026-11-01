@@ -2,6 +2,7 @@
 
 import ipaddress
 import json
+import socket
 import time
 import uuid
 from dataclasses import dataclass
@@ -12,6 +13,8 @@ from urllib.request import (
     Request,
     build_opener,
 )
+
+from pydantic import SecretStr
 
 from app.core.config import settings
 from app.schemas.repair_evaluation import ForgeFitScenarioRequest
@@ -65,21 +68,32 @@ class ForgeFitAdapter:
             return ForgeFitOutcome(status="not_configured", error_code="NOT_CONFIGURED")
         try:
             target = urlsplit(str(scenario.target_url))
-            if not _is_loopback(target.hostname) and not (
-                scenario.allow_external and scenario.authorized_acknowledgement
-            ):
-                raise ForgeFitAdapterError("EXTERNAL_TARGET_NOT_AUTHORIZED")
+            if not _is_loopback(target.hostname):
+                if (
+                    not scenario.allow_external
+                    or not scenario.authorized_acknowledgement
+                    or (
+                        settings.ENVIRONMENT == "production"
+                        and not settings.FORGEFIT_ALLOW_EXTERNAL_TARGETS
+                    )
+                ):
+                    raise ForgeFitAdapterError("EXTERNAL_TARGET_NOT_AUTHORIZED")
+                _require_public_target_addresses(
+                    target.hostname,
+                    target.port or (443 if target.scheme == "https" else 80),
+                )
             base_url = self._validated_base_url(settings.FORGEFIT_BASE_URL)
             headers = {"Accept": "application/json"}
 
             health = self._request_json("GET", f"{base_url}/api/status", headers)
             if health.get("status") != "ok":
                 raise ForgeFitAdapterError("HEALTH_CHECK_FAILED")
-            if health.get("api_key_required") and not settings.FORGEFIT_API_KEY:
+            api_key = _forgefit_api_key()
+            if health.get("api_key_required") and not api_key:
                 raise ForgeFitAdapterError("API_KEY_REQUIRED")
             run_headers = dict(headers)
-            if health.get("api_key_required") and settings.FORGEFIT_API_KEY:
-                run_headers["X-ForgeFit-API-Key"] = settings.FORGEFIT_API_KEY
+            if health.get("api_key_required") and api_key:
+                run_headers["X-ForgeFit-API-Key"] = api_key
 
             run_payload = {
                 "scenario": {
@@ -178,9 +192,8 @@ class ForgeFitAdapter:
             raise ForgeFitAdapterError("INVALID_BASE_URL")
         if parsed.scheme != "https" and not _is_loopback(parsed.hostname):
             raise ForgeFitAdapterError("INSECURE_BASE_URL")
-        if settings.FORGEFIT_API_KEY and any(
-            character in settings.FORGEFIT_API_KEY for character in "\r\n"
-        ):
+        api_key = _forgefit_api_key()
+        if api_key and any(character in api_key for character in "\r\n"):
             raise ForgeFitAdapterError("INVALID_API_KEY")
         return raw_url.rstrip("/")
 
@@ -231,3 +244,28 @@ def _is_loopback(hostname: str | None) -> bool:
 
 
 forgefit_adapter = ForgeFitAdapter()
+
+
+def _forgefit_api_key() -> str | None:
+    value = settings.FORGEFIT_API_KEY
+    if isinstance(value, SecretStr):
+        return value.get_secret_value()
+    return value
+
+
+def _require_public_target_addresses(hostname: str | None, port: int | None) -> None:
+    if not hostname:
+        raise ForgeFitAdapterError("INVALID_TARGET_URL")
+    try:
+        records = socket.getaddrinfo(
+            hostname,
+            port or 443,
+            type=socket.SOCK_STREAM,
+        )
+        addresses = {
+            ipaddress.ip_address(record[4][0].split("%", maxsplit=1)[0]) for record in records
+        }
+    except (OSError, ValueError):
+        raise ForgeFitAdapterError("TARGET_HOST_UNRESOLVED") from None
+    if not addresses or any(not address.is_global for address in addresses):
+        raise ForgeFitAdapterError("TARGET_ADDRESS_NOT_PUBLIC")

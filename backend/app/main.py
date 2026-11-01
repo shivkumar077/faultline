@@ -1,4 +1,5 @@
 import logging
+import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -6,18 +7,18 @@ from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.api.v1.endpoints import health
 from app.api.v1.router import api_v1_router
 from app.core.config import settings
 from app.core.exceptions import FaultlineException
+from app.core.logging_config import configure_logging, safe_error_log
+from app.core.middleware import FaultlineSecurityMiddleware
 from app.db.session import engine
 
+configure_logging("DEBUG" if settings.DEBUG else settings.LOG_LEVEL)
 logger = logging.getLogger("faultline")
-logging.basicConfig(
-    level=logging.INFO if not settings.DEBUG else logging.DEBUG,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
 
 
 @asynccontextmanager
@@ -43,25 +44,33 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS middleware configuration
+app.add_middleware(
+    FaultlineSecurityMiddleware,
+    config=settings,
+)
+app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts=settings.TRUSTED_HOSTS,
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
 )
 
 
-# Centralized exception handlers
 @app.exception_handler(FaultlineException)
 async def faultline_exception_handler(request: Request, exc: FaultlineException) -> JSONResponse:
+    production = settings.ENVIRONMENT == "production"
     return JSONResponse(
         status_code=exc.status_code,
         content={
-            "detail": exc.detail,
+            "detail": "The request could not be completed." if production else exc.detail,
             "error_code": exc.error_code,
-            "extra": exc.extra,
+            "extra": {} if production else exc.extra,
+            "request_id": getattr(request.state, "request_id", uuid.uuid4().hex),
         },
         headers=exc.headers,
     )
@@ -71,12 +80,17 @@ async def faultline_exception_handler(request: Request, exc: FaultlineException)
 async def validation_exception_handler(
     request: Request, exc: RequestValidationError
 ) -> JSONResponse:
+    errors = [
+        {key: value for key, value in error.items() if key not in {"ctx", "input"}}
+        for error in exc.errors()
+    ]
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content={
             "detail": "Validation error in request parameters or body.",
             "error_code": "VALIDATION_ERROR",
-            "extra": {"errors": exc.errors()},
+            "extra": {"errors": errors},
+            "request_id": getattr(request.state, "request_id", uuid.uuid4().hex),
         },
     )
 
@@ -86,9 +100,14 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
     return JSONResponse(
         status_code=exc.status_code,
         content={
-            "detail": exc.detail,
+            "detail": (
+                "The request could not be completed."
+                if settings.ENVIRONMENT == "production" and exc.status_code >= 500
+                else exc.detail
+            ),
             "error_code": "HTTP_ERROR",
             "extra": {},
+            "request_id": getattr(request.state, "request_id", uuid.uuid4().hex),
         },
         headers=exc.headers,
     )
@@ -96,21 +115,20 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
 
 @app.exception_handler(Exception)
 async def general_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    logger.exception("Unhandled server exception: %s", exc)
+    request_id = getattr(request.state, "request_id", uuid.uuid4().hex)
+    safe_error_log(logger, "unhandled_server_exception", exc)
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={
             "detail": "An unexpected internal server error occurred.",
             "error_code": "INTERNAL_SERVER_ERROR",
             "extra": {},
+            "request_id": request_id,
         },
     )
 
 
-# Root health endpoint (for Docker /health container healthchecks and external monitors)
 app.include_router(health.router)
-
-# API v1 routes (/api/v1/projects, /api/v1/analyses, /api/v1/health)
 app.include_router(api_v1_router, prefix=settings.API_V1_PREFIX)
 
 

@@ -15,6 +15,8 @@ class SandboxConfig:
     memory_limit: str = "512m"  # Docker memory notation
     max_pids: int = 128
     timeout_seconds: int = 60
+    max_concurrent_runs: int = 4
+    queue_timeout_seconds: int = 5
 
     # Output capture limits (bytes)
     max_stdout_bytes: int = 100 * 1024  # 100 KB
@@ -47,6 +49,8 @@ class SandboxConfig:
             self.cpu_limit <= 0
             or self.max_pids <= 0
             or self.timeout_seconds <= 0
+            or self.max_concurrent_runs <= 0
+            or self.queue_timeout_seconds <= 0
             or self.max_stdout_bytes <= 0
             or self.max_stderr_bytes <= 0
         ):
@@ -54,7 +58,7 @@ class SandboxConfig:
 
     def to_docker_flags(self) -> list[str]:
         """Build the security and resource Docker CLI flags."""
-        flags: list[str] = []
+        flags: list[str] = ["--init"]
 
         # Network isolation
         if self.network_disabled:
@@ -77,6 +81,7 @@ class SandboxConfig:
 
         # Resource limits
         flags.extend(["--memory", self.memory_limit])
+        flags.extend(["--memory-swap", self.memory_limit])
         flags.extend(["--cpus", str(self.cpu_limit)])
         flags.extend(["--pids-limit", str(self.max_pids)])
 

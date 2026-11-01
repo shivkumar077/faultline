@@ -12,6 +12,13 @@ class HealthResponse(BaseModel):
     environment: str
 
 
+class ReadinessResponse(BaseModel):
+    status: str
+    service: str
+    database: str
+    execution_runner: str
+
+
 class MessageResponse(BaseModel):
     message: str
 

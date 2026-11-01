@@ -24,8 +24,9 @@ def validate_and_normalize_github_url(url: str) -> str:
 
     try:
         parsed = urlparse(url)
-    except Exception as exc:
-        raise ValidationException(f"Invalid URL structure: {exc}") from exc
+        port = parsed.port
+    except ValueError:
+        raise ValidationException("Repository URL has an invalid authority or port.") from None
 
     if parsed.scheme.lower() != "https":
         raise ValidationException(
@@ -42,7 +43,7 @@ def validate_and_normalize_github_url(url: str) -> str:
             f"Unsupported host '{parsed.hostname}'. Only github.com is supported."
         )
 
-    if parsed.port and parsed.port != 443:
+    if port and port != 443:
         raise ValidationException("Non-standard ports are not allowed for GitHub repository URLs.")
 
     if parsed.query:

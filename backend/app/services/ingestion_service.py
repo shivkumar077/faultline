@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any
 
 from app.core.exceptions import FaultlineException, ValidationException
+from app.core.git_environment import isolated_git_environment
+from app.core.logging_config import safe_error_log
 
 logger = logging.getLogger("faultline.ingestion")
 
@@ -122,6 +124,7 @@ class IngestionService:
                 timeout=self.clone_timeout,
                 shell=False,
                 check=False,
+                env=isolated_git_environment(),
             )
         except subprocess.TimeoutExpired as exc:
             raise FaultlineException(
@@ -137,11 +140,10 @@ class IngestionService:
             ) from exc
 
         if result.returncode != 0:
-            stderr_sample = result.stderr.strip()[:300] if result.stderr else "Unknown git error"
-            logger.warning("Git clone failed: %s", stderr_sample)
+            logger.warning("Git clone failed with exit code %d.", result.returncode)
             raise FaultlineException(
                 status_code=400,
-                detail=f"Failed to clone repository: {stderr_sample}",
+                detail="Failed to clone the configured public repository.",
                 error_code="CLONE_FAILED",
             )
 
@@ -155,6 +157,7 @@ class IngestionService:
             timeout=10,
             shell=False,
             check=False,
+            env=isolated_git_environment(),
         )
         if rev_res.returncode != 0:
             raise FaultlineException(
@@ -194,7 +197,10 @@ class IngestionService:
                 try:
                     resolved_file = file_path.resolve()
                     if not resolved_file.is_relative_to(root):
-                        logger.warning("Skipping symlink pointing outside workspace: %s", file_path)
+                        logger.warning(
+                            "Skipping repository symlink outside workspace: %s",
+                            file_path.relative_to(root).as_posix(),
+                        )
                         continue
                 except (ValueError, RuntimeError):
                     continue
@@ -271,7 +277,17 @@ class IngestionService:
             inventory = self.inspect_workspace(temp_dir)
             return commit_hash, inventory
         finally:
-            shutil.rmtree(temp_dir, ignore_errors=True)
+            try:
+                shutil.rmtree(temp_dir)
+            except FileNotFoundError:
+                pass
+            except OSError as exc:
+                safe_error_log(logger, "repository_workspace_cleanup_failed", exc)
+                raise FaultlineException(
+                    status_code=500,
+                    detail="Repository workspace cleanup failed.",
+                    error_code="WORKSPACE_CLEANUP_FAILED",
+                ) from exc
 
 
 ingestion_service = IngestionService()

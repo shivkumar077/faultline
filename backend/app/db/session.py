@@ -5,27 +5,41 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import settings
 
-# Configure engine with SQLite compatibility for local testing or PostgreSQL for production
+database_url = settings.DATABASE_URL.get_secret_value()
 connect_args = {}
-if settings.DATABASE_URL.startswith("sqlite"):
-    connect_args["check_same_thread"] = False
-
 engine_kwargs = {
     "echo": settings.DB_ECHO,
     "connect_args": connect_args,
 }
 
-if not settings.DATABASE_URL.startswith("sqlite"):
+if not database_url.startswith("sqlite"):
+    connect_args.update(
+        {
+            "connect_timeout": settings.DB_CONNECT_TIMEOUT_SECONDS,
+            "options": (
+                f"-c statement_timeout={settings.DB_STATEMENT_TIMEOUT_MS} "
+                f"-c lock_timeout={settings.DB_LOCK_TIMEOUT_MS}"
+            ),
+        }
+    )
     engine_kwargs.update(
         {
             "pool_size": settings.DB_POOL_SIZE,
             "max_overflow": settings.DB_MAX_OVERFLOW,
             "pool_timeout": settings.DB_POOL_TIMEOUT,
+            "pool_recycle": settings.DB_POOL_RECYCLE_SECONDS,
             "pool_pre_ping": True,
         }
     )
+else:
+    connect_args.update(
+        {
+            "timeout": settings.DB_POOL_TIMEOUT,
+            "check_same_thread": False,
+        }
+    )
 
-engine = create_engine(settings.DATABASE_URL, **engine_kwargs)
+engine = create_engine(database_url, **engine_kwargs)
 
 SessionLocal = sessionmaker(
     autocommit=False,

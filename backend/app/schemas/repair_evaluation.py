@@ -1,8 +1,10 @@
+import ipaddress
 import uuid
 from datetime import datetime
 from typing import Literal
+from urllib.parse import urlsplit
 
-from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field
+from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, field_validator
 
 RepairEvaluationStatus = Literal[
     "RUNNING",
@@ -36,6 +38,29 @@ class ForgeFitScenarioRequest(BaseModel):
     allow_external: bool = False
     authorized_acknowledgement: bool = False
     seed: int | None = None
+
+    @field_validator("target_url")
+    @classmethod
+    def validate_target_url(cls, value: AnyHttpUrl) -> AnyHttpUrl:
+        parsed = urlsplit(str(value))
+        hostname = (parsed.hostname or "").casefold()
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not hostname
+            or parsed.username
+            or parsed.password
+            or parsed.fragment
+            or hostname in {"metadata", "metadata.google.internal"}
+            or hostname.endswith((".localhost", ".local", ".localdomain", ".internal", ".lan"))
+        ):
+            raise ValueError("Target URL must be an HTTP(S) URL without credentials or fragments.")
+        try:
+            address = ipaddress.ip_address(hostname)
+        except ValueError:
+            address = None
+        if address is not None and not (address.is_loopback or address.is_global):
+            raise ValueError("Target URL must not use a private, reserved, or link-local address.")
+        return value
 
 
 class RepairEvaluationRequest(BaseModel):

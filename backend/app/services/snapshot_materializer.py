@@ -1,4 +1,5 @@
 import logging
+import re
 import shutil
 import subprocess
 import tempfile
@@ -7,6 +8,9 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from app.core.exceptions import FaultlineException, ValidationException
+from app.core.git_environment import isolated_git_environment
+from app.core.logging_config import safe_error_log
+from app.core.validators import validate_and_normalize_github_url
 
 logger = logging.getLogger("faultline.materializer")
 
@@ -18,8 +22,9 @@ class SnapshotMaterializer:
 
     def materialize_commit(self, repository_url: str, commit_hash: str, target_dir: str) -> str:
         """Clone and checkout an exact commit hash in target_dir using secure subprocess."""
-        if not commit_hash or len(commit_hash) < 7:
-            raise ValidationException(f"Invalid commit hash: {commit_hash}")
+        repository_url = validate_and_normalize_github_url(repository_url)
+        if not re.fullmatch(r"[0-9a-fA-F]{7,64}", commit_hash or ""):
+            raise ValidationException("Commit hash must be a hexadecimal Git object identifier.")
 
         try:
             # 1. Initialize git repo in target directory
@@ -30,11 +35,12 @@ class SnapshotMaterializer:
                 timeout=10,
                 shell=False,
                 check=False,
+                env=isolated_git_environment(),
             )
             if init_res.returncode != 0:
                 raise FaultlineException(
                     status_code=500,
-                    detail=f"Failed to initialize git repository: {init_res.stderr.strip()}",
+                    detail="Failed to initialize the snapshot repository.",
                     error_code="GIT_INIT_FAILED",
                 )
 
@@ -46,11 +52,12 @@ class SnapshotMaterializer:
                 timeout=10,
                 shell=False,
                 check=False,
+                env=isolated_git_environment(),
             )
             if remote_res.returncode != 0:
                 raise FaultlineException(
                     status_code=500,
-                    detail=f"Failed to configure git remote: {remote_res.stderr.strip()}",
+                    detail="Failed to configure the snapshot repository.",
                     error_code="GIT_REMOTE_FAILED",
                 )
 
@@ -72,15 +79,13 @@ class SnapshotMaterializer:
                 timeout=self.timeout,
                 shell=False,
                 check=False,
+                env=isolated_git_environment(),
             )
 
             # If shallow fetch by SHA failed (some remotes disallow direct SHA fetch),
             # try fallback shallow fetch
             if fetch_res.returncode != 0:
-                logger.info(
-                    "Direct commit fetch failed (%s); trying fallback fetch...",
-                    fetch_res.stderr.strip()[:100],
-                )
+                logger.info("Direct commit fetch failed; trying the bounded fallback fetch.")
                 fallback_fetch = subprocess.run(
                     [
                         "git",
@@ -97,12 +102,12 @@ class SnapshotMaterializer:
                     timeout=self.timeout,
                     shell=False,
                     check=False,
+                    env=isolated_git_environment(),
                 )
                 if fallback_fetch.returncode != 0:
-                    err = fetch_res.stderr.strip()[:200]
                     raise FaultlineException(
                         status_code=400,
-                        detail=f"Failed to fetch commit {commit_hash} from {repository_url}: {err}",
+                        detail="Failed to fetch the requested snapshot commit.",
                         error_code="FETCH_COMMIT_FAILED",
                     )
 
@@ -114,12 +119,12 @@ class SnapshotMaterializer:
                 timeout=15,
                 shell=False,
                 check=False,
+                env=isolated_git_environment(),
             )
             if checkout_res.returncode != 0:
-                err = checkout_res.stderr.strip()[:200]
                 raise FaultlineException(
                     status_code=400,
-                    detail=f"Failed to checkout commit {commit_hash}: {err}",
+                    detail="Failed to check out the requested snapshot commit.",
                     error_code="CHECKOUT_COMMIT_FAILED",
                 )
 
@@ -131,6 +136,7 @@ class SnapshotMaterializer:
                 timeout=5,
                 shell=False,
                 check=False,
+                env=isolated_git_environment(),
             )
             actual_head = rev_res.stdout.strip()
             if not actual_head.startswith(commit_hash) and not commit_hash.startswith(actual_head):
@@ -164,7 +170,7 @@ class SnapshotMaterializer:
             except FileNotFoundError:
                 pass
             except OSError as exc:
-                logger.error("Snapshot workspace cleanup failed (%s)", type(exc).__name__)
+                safe_error_log(logger, "snapshot_workspace_cleanup_failed", exc)
                 raise FaultlineException(
                     status_code=500,
                     detail="Snapshot workspace cleanup failed.",
