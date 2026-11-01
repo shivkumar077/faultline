@@ -7,10 +7,10 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
-    UniqueConstraint,
     Uuid,
     func,
 )
@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 
 class ExecutionResult(Base):
     __tablename__ = "execution_results"
-    __table_args__ = (UniqueConstraint("mutation_record_id", name="uq_execution_result_mutation"),)
+    __table_args__ = (Index("uq_execution_result_mutation", "mutation_record_id", unique=True),)
 
     id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True),

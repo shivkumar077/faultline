@@ -6,10 +6,10 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
-    UniqueConstraint,
     Uuid,
     func,
 )
@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 
 class BaselineExecution(Base):
     __tablename__ = "baseline_executions"
-    __table_args__ = (UniqueConstraint("analysis_run_id", name="uq_baseline_analysis_run"),)
+    __table_args__ = (Index("uq_baseline_analysis_run", "analysis_run_id", unique=True),)
 
     id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True),
